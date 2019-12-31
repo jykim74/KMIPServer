@@ -66,6 +66,8 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
+    printf( "ReqLen: %d, RspLen: %d\n", binReq.nLen, binRsp.nLen );
+
     ret = JS_KMIP_send( pSSL, &binRsp );
 
     /* send response body */
