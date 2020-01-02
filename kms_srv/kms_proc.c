@@ -9,13 +9,108 @@
 extern JSP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
 
+long findObjects( const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
+{
+    CK_ATTRIBUTE sTemplate[1];
+    long uCount = 0;
+    CK_OBJECT_CLASS objClass = 0;
+    CK_ULONG uMaxObjCnt = 20;
+    CK_ULONG uObjCnt = -1;
+
+    objClass = CKO_SECRET_KEY;
+
+    sTemplate[uCount].type = CKA_CLASS;
+    sTemplate[uCount].pValue = &objClass;
+    sTemplate[uCount].ulValueLen = sizeof(objClass);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_ID;
+    sTemplate[uCount].pValue = pID->pVal;
+    sTemplate[uCount].ulValueLen = pID->nLen;
+    uCount++;
+
+    JS_PKCS11_FindObjectsInit( g_pP11CTX, g_hSession, sTemplate, uCount );
+    JS_PKCS11_FindObjects( g_pP11CTX, g_hSession, pObjects, uMaxObjCnt, &uObjCnt );
+    JS_PKCS11_FindObjectsFinal( g_pP11CTX, g_hSession );
+
+    return uObjCnt;
+}
+
+int getValue( CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_TYPE nType, BIN *pVal )
+{
+    int ret = 0;
+
+    ret = JS_PKCS11_GetAtrributeValue2( g_pP11CTX, g_hSession, hObject, nType, pVal );
+
+    return ret;
+}
+
 int runGet( const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
 {
+    int ret = 0;
+    BIN binID = {0,0};
+    BIN binVal = {0,0};
+    CK_OBJECT_HANDLE    sObjects[20];
+
     GetRequestPayload *grp = (GetRequestPayload *)pReqItem->request_payload;
 
+    JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
 
+    ret = findObjects( &binID, sObjects );
 
-    return 0;
+    pRspItem->operation = pReqItem->operation;
+
+    if( ret <= 0 )
+    {
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = (TextString *)JS_malloc(sizeof(TextString));
+        pRspItem->result_message->size = 5;
+        pRspItem->result_message->value = JS_strdup( "error" );
+        ret = -1;
+
+        goto end;
+    }
+
+    ret = getValue( sObjects[0], CKA_VALUE, &binVal );
+    if( ret != CKR_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = (TextString *)JS_malloc(sizeof(TextString));
+        pRspItem->result_message->size = 5;
+        pRspItem->result_message->value = JS_strdup( "error" );
+        ret = -2;
+
+        goto end;
+    }
+
+    GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
+    gsp->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
+
+    gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
+    gsp->unique_identifier->size = binID.nLen;
+    gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
+    memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
+
+    ByteString *material = (ByteString *)JS_calloc(1, sizeof(ByteString));
+    material->size = binVal.nLen;
+    material->value = binVal.pVal;
+
+    KeyValue *block_value = (KeyValue *)JS_calloc(1, sizeof(KeyValue));
+    block_value->key_material = material;
+
+    SymmetricKey *symmetric_key = (SymmetricKey *)JS_calloc(1, sizeof(SymmetricKey));
+    symmetric_key->key_block = block_value;
+
+    gsp->object = symmetric_key;
+
+    pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    pRspItem->response_payload = gsp;
+
+end :
+
+    return ret;
 }
 
 int runCreate(const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
@@ -120,10 +215,57 @@ int runCreate(const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
 
 int runDestroy(const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
 {
+    int ret = 0;
+    BIN binID = {0,0};
+    CK_OBJECT_HANDLE    sObjects[20];
+
     DestroyRequestPayload *drp = (DestroyRequestPayload *)pReqItem->request_payload;
 
 
-    return 0;
+    JS_BIN_set( &binID, drp->unique_identifier->value, drp->unique_identifier->size );
+
+    ret = findObjects( &binID, sObjects );
+
+    pRspItem->operation = pReqItem->operation;
+
+    if( ret <= 0 )
+    {
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = (TextString *)JS_malloc(sizeof(TextString));
+        pRspItem->result_message->size = 5;
+        pRspItem->result_message->value = JS_strdup( "error" );
+        ret = -1;
+
+        goto end;
+    }
+
+    ret = JS_PKCS11_DestroyObject( g_pP11CTX, g_hSession, sObjects[0] );
+    if( ret != CKR_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = (TextString *)JS_malloc(sizeof(TextString));
+        pRspItem->result_message->size = 5;
+        pRspItem->result_message->value = JS_strdup( "error" );
+        ret = -2;
+
+        goto end;
+    }
+
+    DestroyResponsePayload *dsp = (DestroyResponsePayload *)JS_calloc(1, sizeof(DestroyResponsePayload));
+
+    dsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
+    dsp->unique_identifier->size = binID.nLen;
+    dsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
+    memcpy( dsp->unique_identifier->value, binID.pVal, binID.nLen );
+
+    pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    pRspItem->response_payload = dsp;
+
+end :
+
+    return ret;
 }
 
 int procBatchItem( const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
