@@ -9,7 +9,7 @@
 
 #include "kms_srv.h"
 #include "js_ssl.h"
-#include "js_kmip.h"
+#include "js_kms.h"
 #include "js_pkcs11.h"
 
 SSL_CTX     *g_pSSLCTX = NULL;
@@ -58,7 +58,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
-    ret = JS_KMIP_receive( pSSL, &binReq );
+    ret = JS_KMS_receive( pSSL, &binReq );
 
     ret = procKMS( &binReq, &binRsp );
     if( ret != 0 )
@@ -68,7 +68,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
 
     printf( "ReqLen: %d, RspLen: %d\n", binReq.nLen, binRsp.nLen );
 
-    ret = JS_KMIP_send( pSSL, &binRsp );
+    ret = JS_KMS_send( pSSL, &binRsp );
 
     /* send response body */
 end:
