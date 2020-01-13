@@ -16,7 +16,7 @@ SSL_CTX     *g_pSSLCTX = NULL;
 BIN         g_binPri = {0,0};
 BIN         g_binCert = {0,0};
 BIN         g_binCACert = {0,0};
-JSP11_CTX   *g_pP11CTX = NULL;
+JP11_CTX   *g_pP11CTX = NULL;
 CK_SESSION_HANDLE   g_hSession = -1;
 
 int KMS_Service( JThreadInfo *pThInfo )

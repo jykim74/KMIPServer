@@ -6,7 +6,7 @@
 #include "js_bin.h"
 #include "js_pkcs11.h"
 
-extern JSP11_CTX    *g_pP11CTX;
+extern JP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
 
 long findObjects( const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
