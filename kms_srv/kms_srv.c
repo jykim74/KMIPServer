@@ -8,9 +8,11 @@
 #include "js_db.h"
 
 #include "kms_srv.h"
+#include "kms_proc.h"
 #include "js_ssl.h"
 #include "js_kms.h"
 #include "js_pkcs11.h"
+#include "js_db.h"
 
 SSL_CTX     *g_pSSLCTX = NULL;
 BIN         g_binPri = {0,0};
@@ -18,6 +20,7 @@ BIN         g_binCert = {0,0};
 BIN         g_binCACert = {0,0};
 JP11_CTX   *g_pP11CTX = NULL;
 CK_SESSION_HANDLE   g_hSession = -1;
+const char  *g_pDBPath = "D:/data/ca.db";
 
 int KMS_Service( JThreadInfo *pThInfo )
 {
@@ -27,7 +30,15 @@ int KMS_Service( JThreadInfo *pThInfo )
     BIN binReq = {0,0};
     BIN binRsp = {0,0};
 
-    ret = procKMS( &binReq, &binRsp );
+    sqlite3* db = JS_DB_open( g_pDBPath );
+    if( db == NULL )
+    {
+        fprintf( stderr, "fail to open db file(%s)\n", g_pDBPath );
+        ret = -1;
+        goto end;
+    }
+
+    ret = procKMS( db, &binReq, &binRsp );
     if( ret != 0 )
     {
         goto end;
@@ -38,6 +49,8 @@ int KMS_Service( JThreadInfo *pThInfo )
 end:
     JS_BIN_reset( &binReq );
     JS_BIN_reset( &binRsp );
+    JS_DB_close( db );
+
     return 0;
 }
 
@@ -50,6 +63,14 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     BIN binReq = {0,0};
     BIN binRsp = {0,0};
 
+    sqlite3* db = JS_DB_open( g_pDBPath );
+    if( db == NULL )
+    {
+        fprintf( stderr, "fail to open db file(%s)\n", g_pDBPath );
+        ret = -1;
+        goto end;
+    }
+
 
     ret = JS_SSL_accept( g_pSSLCTX, pThInfo->nSockFd, &pSSL );
     if( ret != 0 )
@@ -60,7 +81,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
 
     ret = JS_KMS_receive( pSSL, &binReq );
 
-    ret = procKMS( &binReq, &binRsp );
+    ret = procKMS( db, &binReq, &binRsp );
     if( ret != 0 )
     {
         goto end;
@@ -76,6 +97,7 @@ end:
     JS_BIN_reset( &binRsp );
 
     if( pSSL ) JS_SSL_clear( pSSL );
+    JS_DB_close( db );
 
 
     return 0;
@@ -84,10 +106,11 @@ end:
 int Init()
 {
     int ret = 0;
-    const char *pCACertPath = "/Users/jykim/work/certs/root_cert.der";
-    const char *pCertPath = "/Users/jykim/work/certs/server_cert.der";
-    const char *pPriPath = "/Users/jykim/work/certs/server_prikey.der";
-    const char *pP11Path = "/usr/local/lib/softhsm/libsofthsm2.so";
+    const char *pCACertPath = "D:/certs/root_cert.der";
+    const char *pCertPath = "D:/certs/server_cert.der";
+    const char *pPriPath = "D:/certs/server_key.der";
+//    const char *pP11Path = "/usr/local/lib/softhsm/libsofthsm2.so";
+    const char *pP11Path = "D:/SoftHSM2/lib/softhsm2.dll";
 
     JS_BIN_fileRead( pCACertPath, &g_binCACert );
     JS_BIN_fileRead( pCertPath, &g_binCert );
@@ -113,7 +136,8 @@ int loginHSM()
     CK_ULONG uSlotCnt = 0;
     CK_SLOT_ID  sSlotList[10];
 
-    char *pPin = "1234";
+//    char *pPin = "1234";
+    char *pPin = "9999";
     long uPinLen = 4;
     int nUserType = 0;
 
@@ -161,6 +185,7 @@ int loginHSM()
     return 0;
 }
 
+#if 1
 int main( int argc, char *argv[] )
 {
     Init();
@@ -172,3 +197,4 @@ int main( int argc, char *argv[] )
 
     return 0;
 }
+#endif

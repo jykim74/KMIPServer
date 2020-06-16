@@ -1,14 +1,16 @@
 TEMPLATE = app
-CONFIG += console
+CONFIG += c++11 console
 CONFIG -= app_bundle
 CONFIG -= qt
 
 SOURCES += \
+        kms_define.c \
         kms_proc.c \
-        kms_srv.c \
-        main.c
+        kms_srv.c
 
 HEADERS += \
+    kms_define.h \
+    kms_proc.h \
     kms_srv.h
 
 
@@ -38,6 +40,6 @@ win32 {
         LIBS += -L"../../PKILib/lib/win32/cmpossl/lib" -lcrypto -lssl
     }
 
-    LIBS += -L"C:\msys64\mingw32\lib" -lltdl
+    LIBS += -L"C:\msys64\mingw32\lib" -lltdl -lsqlite3
 
 }
