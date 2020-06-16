@@ -9,6 +9,7 @@
 int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem );
 int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
 int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
+int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
 
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );
 

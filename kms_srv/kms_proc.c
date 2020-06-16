@@ -375,6 +375,77 @@ end :
     return ret;
 }
 
+int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    BIN binID = {0,0};
+    CK_OBJECT_HANDLE    sObjects[20];
+    char sSeq[16];
+    JDB_KMS sKMS;
+
+    memset( sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMS, 0x00, sizeof(sKMS));
+
+    ActivateRequestPayload *arp = (ActivateRequestPayload *)pReqItem->request_payload;
+
+
+    JS_BIN_set( &binID, arp->unique_identifier->value, arp->unique_identifier->size );
+    memcpy( sSeq, arp->unique_identifier->value, arp->unique_identifier->size );
+
+    pRspItem->operation = pReqItem->operation;
+
+    ret = JS_DB_getKMS( db, atoi(sSeq), &sKMS );
+    if( ret != 1 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    sKMS.nStatus = 1;
+
+    ret = JS_DB_modKMS( db, atoi(sSeq), &sKMS );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    pRspItem->operation = pReqItem->operation;
+
+
+    ActivateResponsePayload *asp = (ActivateResponsePayload *)JS_calloc(1, sizeof(ActivateResponsePayload));
+
+    asp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
+    asp->unique_identifier->size = binID.nLen;
+    asp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
+
+    memcpy( asp->unique_identifier->value, binID.pVal, binID.nLen );
+    pRspItem->response_payload = asp;
+
+    ret = JS_KMS_OK;
+    JS_DB_delKMS( db, atoi(sSeq));
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+    }
+
+    JS_BIN_reset( &binID );
+    JS_DB_resetKMS( &sKMS );
+
+    return ret;
+}
+
+
 int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
 {
     int ret = 0;
@@ -390,6 +461,10 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_DESTROY )
     {
         ret = runDestroy( db, pReqItem, pRspItem );
+    }
+    else if( pReqItem->operation == KMIP_OP_ACTIVATE )
+    {
+        ret = runActivate( db, pReqItem, pRspItem );
     }
     else if( pReqItem->operation == KMIP_OP_SIGN )
     {
