@@ -11,7 +11,7 @@
 extern JP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
 
-long findObjects( const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
+long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
 {
     int ret = 0;
     CK_ATTRIBUTE sTemplate[2];
@@ -20,7 +20,8 @@ long findObjects( const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
     CK_ULONG uMaxObjCnt = 20;
     CK_ULONG uObjCnt = -1;
 
-    objClass = CKO_SECRET_KEY;
+//   objClass = CKO_SECRET_KEY;
+    objClass = uObjClass;
 
     sTemplate[uCount].type = CKA_CLASS;
     sTemplate[uCount].pValue = &objClass;
@@ -77,7 +78,7 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
 
     JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
 
-    ret = findObjects( &binID, sObjects );
+    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
 
     pRspItem->operation = pReqItem->operation;
 
@@ -324,7 +325,7 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     JS_BIN_set( &binID, drp->unique_identifier->value, drp->unique_identifier->size );
     memcpy( sSeq, drp->unique_identifier->value, drp->unique_identifier->size );
 
-    ret = findObjects( &binID, sObjects );
+    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
 
     pRspItem->operation = pReqItem->operation;
 
@@ -410,8 +411,6 @@ int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
         goto end;
     }
 
-    pRspItem->operation = pReqItem->operation;
-
 
     ActivateResponsePayload *asp = (ActivateResponsePayload *)JS_calloc(1, sizeof(ActivateResponsePayload));
 
@@ -445,6 +444,626 @@ end :
     return ret;
 }
 
+int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    BIN binIV = {0};
+    BIN binPlain = {0};
+    BIN binID = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+    CK_MECHANISM stMech = {0};
+    unsigned char *pEncData = NULL;
+    long uEncDataLen = 0;
+
+    EncryptRequestPayload *pERP = (EncryptRequestPayload *)pReqItem->request_payload;
+    if( pERP == NULL )
+    {
+        ret = JS_KMS_ERROR_NO_PAYLOAD;
+        goto end;
+    }
+
+    JS_BIN_set( &binID, pERP->unique_identifier->value, pERP->unique_identifier->size );
+    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( pERP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
+            pERP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pERP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
+    {
+        stMech.mechanism = CKM_AES_CBC_PAD;
+    }
+    else
+    {
+        fprintf( stderr, "need to work\n" );
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    JS_BIN_set( &binPlain, pERP->data->value, pERP->data->size );
+    JS_BIN_set( &binID, pERP->iv_counter_nonce->value, pERP->iv_counter_nonce->size );
+
+    stMech.pParameter = binIV.pVal;
+    stMech.ulParameterLen = binIV.nLen;
+
+    ret = JS_PKCS11_EncryptInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    pEncData = (unsigned char *)JS_malloc( binPlain.nLen + 64 );
+
+    ret = JS_PKCS11_Encrypt( g_pP11CTX, g_hSession, binPlain.pVal, binPlain.nLen, pEncData, &uEncDataLen );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    EncryptResponsePayload *pESP = (EncryptResponsePayload *)JS_calloc( 1, sizeof(EncryptResponsePayload));
+    pESP->data->value = pEncData;
+    pESP->data->size = uEncDataLen;
+
+    pESP->unique_identifier->value = binID.pVal;
+    pESP->unique_identifier->size = binID.nLen;
+
+    pRspItem->response_payload = pESP;
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+
+        if( pEncData ) JS_free( pEncData );
+        JS_BIN_reset( &binID );
+    }
+
+    JS_BIN_reset( &binIV );
+    JS_BIN_reset( &binPlain );
+
+    return ret;
+}
+
+int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    BIN binIV = {0};
+    BIN binEncrypt = {0};
+    BIN binID = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+    CK_MECHANISM stMech = {0};
+    unsigned char *pDecData = NULL;
+    long uDecDataLen = 0;
+
+    DecryptRequestPayload *pDRP = (DecryptRequestPayload *)pReqItem->request_payload;
+    if( pDRP == NULL )
+    {
+        ret = JS_KMS_ERROR_NO_PAYLOAD;
+        goto end;
+    }
+
+    JS_BIN_set( &binID, pDRP->unique_identifier->value, pDRP->unique_identifier->size );
+    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( pDRP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
+            pDRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pDRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
+    {
+        stMech.mechanism = CKM_AES_CBC_PAD;
+    }
+    else
+    {
+        fprintf( stderr, "need to work\n" );
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    JS_BIN_set( &binEncrypt, pDRP->data->value, pDRP->data->size );
+    JS_BIN_set( &binID, pDRP->iv_counter_nonce->value, pDRP->iv_counter_nonce->size );
+
+    stMech.pParameter = binIV.pVal;
+    stMech.ulParameterLen = binIV.nLen;
+
+    ret = JS_PKCS11_DecryptInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    pDecData = (unsigned char *)JS_malloc( binEncrypt.nLen + 64 );
+
+    ret = JS_PKCS11_Decrypt( g_pP11CTX, g_hSession, binEncrypt.pVal, binEncrypt.nLen, pDecData, &uDecDataLen );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    DecryptResponsePayload *pDSP = (DecryptResponsePayload *)JS_calloc( 1, sizeof(DecryptResponsePayload));
+    pDSP->data->value = pDecData;
+    pDSP->data->size = uDecDataLen;
+
+    pDSP->unique_identifier->value = binID.pVal;
+    pDSP->unique_identifier->size = binID.nLen;
+
+    pRspItem->response_payload = pDSP;
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+
+        if( pDecData ) JS_free( pDecData );
+        JS_BIN_reset( &binID );
+    }
+
+    JS_BIN_reset( &binIV );
+    JS_BIN_reset( &binEncrypt );
+
+    return ret;
+}
+
+int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    BIN binID = {0};
+    BIN binSign = {0};
+    BIN binData = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    CK_MECHANISM stMech = {0};
+    unsigned char sSign[1024];
+    long uSignLen = 0;
+
+    SignRequestPayload *pSRP = (SignRequestPayload *)pReqItem->request_payload;
+
+    pRspItem->operation = pReqItem->operation;
+
+    JS_BIN_set( &binID, pSRP->unique_identifier->value, pSRP->unique_identifier->size );
+    ret = findObjects( CKO_PRIVATE_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+
+    if( pSRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
+            pSRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pSRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
+    {
+        stMech.mechanism = CKM_SHA256_RSA_PKCS;
+    }
+    else
+    {
+        fprintf( stderr, "need to work\n" );
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    JS_BIN_set( &binData, pSRP->data->value, pSRP->data->size );
+
+    ret = JS_PKCS11_SignInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    ret = JS_PKCS11_Sign( g_pP11CTX, g_hSession, binData.pVal, binData.nLen, sSign, &uSignLen );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    SignResponsePayload *pSSP = (SignResponsePayload *)JS_calloc( 1, sizeof(SignResponsePayload));
+
+    pSSP->signature_data->value = JS_malloc( uSignLen );
+    memcpy( pSSP->signature_data->value, sSign, uSignLen );
+    pSSP->signature_data->size = uSignLen;
+
+    pSSP->unique_identifier->value = binID.pVal;
+    pSSP->unique_identifier->size = binID.nLen;
+
+    pRspItem->response_payload = pSSP;
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+
+        JS_BIN_reset( &binID );
+    }
+
+    return ret;
+}
+
+int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    BIN binID = {0};
+    BIN binSign = {0};
+    BIN binData = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    CK_MECHANISM stMech = {0};
+
+    SignatureVerifyRequestPayload *pVRP = (SignatureVerifyRequestPayload *)pReqItem->request_payload;
+
+    pRspItem->operation = pReqItem->operation;
+
+    JS_BIN_set( &binID, pVRP->unique_identifier->value, pVRP->unique_identifier->size );
+    ret = findObjects( CKO_PRIVATE_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+
+    if( pVRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
+            pVRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pVRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
+    {
+        stMech.mechanism = CKM_SHA256_RSA_PKCS;
+    }
+    else
+    {
+        fprintf( stderr, "need to work\n" );
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    JS_BIN_set( &binData, pVRP->data->value, pVRP->data->size );
+    JS_BIN_set( &binSign, pVRP->signature_data->value, pVRP->signature_data->size );
+
+    ret = JS_PKCS11_VerifyInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    ret = JS_PKCS11_Verify( g_pP11CTX, g_hSession, binData.pVal, binData.nLen, binSign.pVal, binSign.nLen );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    SignatureVerifyResponsePayload *pVSP = (SignatureVerifyResponsePayload *)JS_calloc( 1, sizeof(SignatureVerifyResponsePayload));
+
+    pVSP->validity_indicator = KMIP_VALIDITY_VALID;
+
+    pVSP->unique_identifier->value = binID.pVal;
+    pVSP->unique_identifier->size = binID.nLen;
+
+    pRspItem->response_payload = pVSP;
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+
+        JS_BIN_reset( &binID );
+    }
+
+    return ret;
+}
+
+int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+    RegisterRequestPayload *pRRP = (RegisterRequestPayload *)pReqItem->request_payload;
+
+    pRspItem->operation = pReqItem->operation;
+
+    return 0;
+}
+
+int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    int ret = 0;
+
+    int nLength = 2048;
+    int nPriSeq = 0;
+    int nPubSeq = 0;
+
+    char sPriSeq[16];
+    char sPubSeq[16];
+
+    CK_MECHANISM stMech;
+    CK_ULONG uPubCount = 0;
+    CK_ATTRIBUTE sPubTemplate[20];
+    CK_ULONG uPriCount = 0;
+    CK_ATTRIBUTE sPriTemplate[20];
+
+    CK_OBJECT_CLASS pubClass = CKO_PUBLIC_KEY;
+    CK_OBJECT_CLASS priClass = CKO_PRIVATE_KEY;
+
+    CK_KEY_TYPE keyType;
+
+    CK_BBOOL bTrue = CK_TRUE;
+    CK_BBOOL bFalse = CK_FALSE;
+
+    CK_ULONG uModulusBits = 0;
+
+    CK_OBJECT_HANDLE uPubHandle = -1;
+    CK_OBJECT_HANDLE uPriHandle = -1;
+
+    BIN binExponent = {0};
+    BIN binECParam = {0};
+
+    const char *pLabel = "KMS KeyPair";
+    const char *pSubject = "KMS Subject";
+
+    JDB_KMS sPriKMS;
+    JDB_KMS sPubKMS;
+
+    CreateKeyPairRequestPayload *crp = (CreateKeyPairRequestPayload *)pReqItem->request_payload;
+
+    pRspItem->operation = pReqItem->operation;
+
+    memset( &stMech, 0x00, sizeof(stMech));
+    memset( sPriSeq, 0x00, sizeof(sPriSeq));
+    memset( sPubSeq, 0x00, sizeof(sPubSeq));
+    memset( &sPriKMS, 0x00, sizeof(sPriKMS));
+    memset( &sPubKMS, 0x00, sizeof(sPubKMS));
+
+    if( crp->common_template_attribute )
+    {
+        TemplateAttribute *tca = crp->common_template_attribute;
+
+        for( int i = 0; i < tca->attribute_count; i++ )
+        {
+            if( tca->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_ALGORITHM )
+            {
+                enum cryptographic_algorithm *alg;
+                alg = tca->attributes[i].value;
+
+                if( *alg == KMIP_CRYPTOALG_EC )
+                    keyType = CKK_ECDSA;
+                else
+                    keyType = CKK_RSA;
+            }
+            else if( tca->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_LENGTH )
+            {
+                int32 *length = tca->attributes[i].value;
+                nLength = *length;
+            }
+        }
+    }
+
+    if( crp->public_key_template_attribute )
+    {
+        TemplateAttribute *pua = crp->public_key_template_attribute;
+
+        for( int i = 0; i < pua->attribute_count; i++ )
+        {
+            if( pua->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
+            {
+
+            }
+        }
+    }
+
+    if( crp->private_key_template_attribute )
+    {
+        TemplateAttribute *pra = crp->private_key_template_attribute;
+
+        for( int i = 0; i < pra->attribute_count; i++ )
+        {
+            if( pra->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
+            {
+
+            }
+        }
+    }
+
+    nPriSeq = JS_DB_getSeq( db, "TB_KMS" );
+    nPubSeq = nPriSeq + 1;
+    sprintf( sPriSeq, "%d", nPriSeq );
+    sprintf( sPubSeq, "%d", nPubSeq );
+
+    if( keyType == CKK_RSA )
+    {
+        stMech.mechanism = CKM_RSA_PKCS_KEY_PAIR_GEN;
+        uModulusBits = nLength;
+        JS_BIN_decodeHex( "010001", &binExponent );
+    }
+    else if( keyType == CKK_ECDSA )
+    {
+        stMech.mechanism = CKM_ECDSA_KEY_PAIR_GEN;
+    }
+
+    sPubTemplate[uPubCount].type = CKA_CLASS;
+    sPubTemplate[uPubCount].pValue = &pubClass;
+    sPubTemplate[uPubCount].ulValueLen = sizeof(pubClass);
+    uPubCount++;
+
+    sPubTemplate[uPubCount].type = CKA_KEY_TYPE;
+    sPubTemplate[uPubCount].pValue = &keyType;
+    sPubTemplate[uPubCount].ulValueLen = sizeof(keyType);
+    uPubCount++;
+
+    if( keyType == CKK_RSA )
+    {
+        sPubTemplate[uPubCount].type = CKA_MODULUS_BITS;
+        sPubTemplate[uPubCount].pValue = &uModulusBits;
+        sPubTemplate[uPubCount].ulValueLen = sizeof(uModulusBits);
+        uPubCount++;
+
+        sPubTemplate[uPubCount].type = CKA_PUBLIC_EXPONENT;
+        sPubTemplate[uPubCount].pValue = binExponent.pVal;
+        sPubTemplate[uPubCount].ulValueLen = binExponent.nLen;
+        uPubCount++;
+    }
+    else if( keyType == CKK_ECDSA )
+    {
+
+    }
+
+    sPubTemplate[uPubCount].type = CKA_LABEL;
+    sPubTemplate[uPubCount].pValue = pLabel;
+    sPubTemplate[uPubCount].ulValueLen = strlen( pLabel );
+    uPubCount++;
+
+    sPubTemplate[uPubCount].type = CKA_ID;
+    sPubTemplate[uPubCount].pValue = sPubSeq;
+    sPubTemplate[uPubCount].ulValueLen = strlen( sPubSeq );
+    uPubCount++;
+
+    sPubTemplate[uPubCount].type = CKA_TOKEN;
+    sPubTemplate[uPubCount].pValue = &bTrue;
+    sPubTemplate[uPubCount].ulValueLen = sizeof(bTrue);
+    uPubCount++;
+
+    sPubTemplate[uPubCount].type = CKA_ENCRYPT;
+    sPubTemplate[uPubCount].pValue = &bTrue;
+    sPubTemplate[uPubCount].ulValueLen = sizeof(bTrue);
+    uPubCount++;
+
+    sPubTemplate[uPubCount].type = CKA_VERIFY;
+    sPubTemplate[uPubCount].pValue = &bTrue;
+    sPubTemplate[uPubCount].ulValueLen = sizeof(bTrue);
+    uPubCount++;
+
+    // Private Template
+    sPriTemplate[uPriCount].type = CKA_CLASS;
+    sPriTemplate[uPriCount].pValue = &priClass;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(priClass);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_KEY_TYPE;
+    sPriTemplate[uPriCount].pValue = &keyType;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(keyType);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_LABEL;
+    sPriTemplate[uPriCount].pValue = pLabel;
+    sPriTemplate[uPriCount].ulValueLen = strlen(pLabel);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_SUBJECT;
+    sPriTemplate[uPriCount].pValue = pSubject;
+    sPriTemplate[uPriCount].ulValueLen = strlen( pSubject );
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_ID;
+    sPriTemplate[uPriCount].pValue = sPriSeq;
+    sPriTemplate[uPriCount].ulValueLen = strlen( sPriSeq );
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_PRIVATE;
+    sPriTemplate[uPriCount].pValue = &bTrue;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(bTrue);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_TOKEN;
+    sPriTemplate[uPriCount].pValue = &bTrue;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(bTrue);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_DECRYPT;
+    sPriTemplate[uPriCount].pValue = &bTrue;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(bTrue);
+    uPriCount++;
+
+    sPriTemplate[uPriCount].type = CKA_SIGN;
+    sPriTemplate[uPriCount].pValue = &bTrue;
+    sPriTemplate[uPriCount].ulValueLen = sizeof(bTrue);
+    uPriCount++;
+
+    ret = JS_PKCS11_GenerateKeyPair( g_pP11CTX, g_hSession, &stMech, sPubTemplate, uPubCount, sPriTemplate, uPriCount, &uPubHandle, &uPriHandle );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    CreateKeyPairResponsePayload *csp = (CreateKeyPairResponsePayload *)JS_calloc(1, sizeof(CreateKeyPairResponsePayload));
+    csp->public_key_unique_identifier = (TextString *)JS_malloc( sizeof(TextString) );
+    csp->public_key_unique_identifier->size = strlen( sPubSeq );
+    csp->public_key_unique_identifier->value = JS_strdup( sPubSeq );
+
+    csp->private_key_unique_identifier = (TextString *)JS_malloc( sizeof(TextString) );
+    csp->private_key_unique_identifier->size = strlen( sPriSeq );
+    csp->private_key_unique_identifier->value = JS_strdup( sPriSeq );
+
+    pRspItem->response_payload = csp;
+
+    JS_DB_setKMS( &sPriKMS, nPriSeq, 0, 1, "privatekey" );
+    JS_DB_setKMS( &sPubKMS, nPubSeq, 0, 2, sPriSeq );
+
+    JS_DB_addKMS( db, &sPriKMS );
+    JS_DB_addKMS( db, &sPubKMS );
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+    }
+
+    JS_BIN_reset( &binECParam );
+    JS_BIN_reset( &binExponent );
+    JS_DB_resetKMS( &sPriKMS );
+    JS_DB_resetKMS( &sPubKMS );
+
+    return ret;
+}
+
 
 int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
 {
@@ -468,23 +1087,27 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     }
     else if( pReqItem->operation == KMIP_OP_SIGN )
     {
-
+        ret = runSign( db, pReqItem, pRspItem );
     }
     else if( pReqItem->operation == KMIP_OP_DECRYPT )
     {
-
+        ret = runDecrypt( db, pReqItem, pRspItem );
     }
     else if( pReqItem->operation == KMIP_OP_ENCRYPT )
     {
-
+        ret = runEncrypt( db, pReqItem, pRspItem );
     }
     else if( pReqItem->operation == KMIP_OP_REGISTER )
     {
-
+        ret = runRegister( db, pReqItem, pRspItem );
     }
     else if( pReqItem->operation == KMIP_OP_CREATE_KEY_PAIR )
     {
-
+        ret = runGenKeyPair( db, pReqItem, pRspItem );
+    }
+    else if( pReqItem->operation == KMIP_OP_SIGNATURE_VERIFY )
+    {
+        ret = runVerify( db, pReqItem, pRspItem );
     }
     else
     {
