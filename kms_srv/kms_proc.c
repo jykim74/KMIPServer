@@ -7,6 +7,8 @@
 #include "js_pkcs11.h"
 #include "kms_define.h"
 #include "js_db.h"
+#include "js_kms.h"
+#include "js_pki.h"
 
 extern JP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
@@ -795,14 +797,609 @@ end :
     return ret;
 }
 
+static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
+{
+    int ret = 0;
+
+    CK_ATTRIBUTE sTemplate[20];
+    CK_ULONG    uCount = 0;
+    CK_OBJECT_HANDLE    hObject = 0;
+    CK_OBJECT_CLASS objClass = CKO_CERTIFICATE;
+    CK_CERTIFICATE_TYPE certType = CKC_X_509;
+    CK_BBOOL bTrue = CK_TRUE;
+    CK_BBOOL bFalse = CK_FALSE;
+
+
+    if( pRRP == NULL )
+        return JS_KMS_ERROR_NO_PAYLOAD;
+
+    TemplateAttribute *pta = pRRP->template_attribute;
+    Certificate *pcert = pRRP->object;
+
+    sTemplate[uCount].type = CKA_CLASS;
+    sTemplate[uCount].pValue = &objClass;
+    sTemplate[uCount].ulValueLen = sizeof(objClass);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_CERTIFICATE_TYPE;
+    sTemplate[uCount].pValue = &certType;
+    sTemplate[uCount].ulValueLen = sizeof(certType);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_ID;
+    sTemplate[uCount].pValue = pID->pVal;
+    sTemplate[uCount].ulValueLen = pID->nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_VALUE;
+    sTemplate[uCount].pValue = pcert->certificate_value->value;
+    sTemplate[uCount].ulValueLen = pcert->certificate_value->size;
+    uCount++;
+
+    for( int i = 0; i < pta->attribute_count; i++ )
+    {
+        if( pta->attributes[i].type == KMIP_ATTR_NAME )
+        {
+            Name *pname = pta->attributes[i].value;
+
+            sTemplate[uCount].type = CKA_LABEL;
+            sTemplate[uCount].pValue = pname->value->value;
+            sTemplate[uCount].ulValueLen = pname->value->size;
+            uCount++;
+        }
+    }
+
+    sTemplate[uCount].type = CKA_TOKEN;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    if( ret != CKR_OK )
+        return JS_KMS_ERROR_SYSTEM;
+
+    return 0;
+}
+
+static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+{
+    int ret = 0;
+
+    CK_ATTRIBUTE sTemplate[20];
+    CK_ULONG    uCount = 0;
+    CK_OBJECT_HANDLE    hObject = 0;
+    CK_OBJECT_CLASS objClass = CKO_PRIVATE_KEY;
+    CK_KEY_TYPE keyType = CKK_RSA;
+    CK_BBOOL bTrue = CK_TRUE;
+    CK_BBOOL bFalse = CK_FALSE;
+    PrivateKey *pPriKey = NULL;
+    KeyValue *pKeyValue = NULL;
+    ByteString *pMaterial = NULL;
+    int nLen = 0;
+    JRSAKeyVal      sRSAKeyVal;
+
+    BIN     binN = {0};
+    BIN     binE = {0};
+    BIN     binD = {0};
+    BIN     binP = {0};
+    BIN     binQ = {0};
+    BIN     binDMP1 = {0};
+    BIN     binDMQ1 = {0};
+    BIN     binIQMP = {0};
+
+    BIN     binPri = {0};
+
+    if( pRRP == NULL )
+        return JS_KMS_ERROR_NO_PAYLOAD;
+
+    memset( &sRSAKeyVal, 0x00, sizeof(sRSAKeyVal));
+
+    sTemplate[uCount].type = CKA_CLASS;
+    sTemplate[uCount].pValue = &objClass;
+    sTemplate[uCount].ulValueLen = sizeof(objClass);
+    uCount++;
+
+    pPriKey = pRRP->object;
+
+    if( pPriKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
+    {
+        keyType = CKK_RSA;
+        sTemplate[uCount].type = CKA_KEY_TYPE;
+        sTemplate[uCount].pValue = &keyType;
+        sTemplate[uCount].ulValueLen = sizeof(keyType);
+        uCount++;
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        return ret;
+    }
+
+    sTemplate[uCount].type = CKA_ID;
+    sTemplate[uCount].pValue = pID->pVal;
+    sTemplate[uCount].ulValueLen = pID->nLen;
+    uCount++;
+
+    pKeyValue = pPriKey->key_block->key_value;
+
+    if( pKeyValue == NULL )
+    {
+        ret = JS_KMS_ERROR_NO_PAYLOAD;
+        return ret;
+    }
+
+    pMaterial = pKeyValue->key_material;
+    JS_BIN_set( &binPri, pMaterial->value, pMaterial->size );
+
+    ret = JS_PKI_getRSAKeyVal( &binPri, &sRSAKeyVal );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_INVALID_VALUE;
+        goto end;
+    }
+
+    JS_BIN_decodeHex( sRSAKeyVal.pN, &binN );
+    JS_BIN_decodeHex( sRSAKeyVal.pE, &binE );
+    JS_BIN_decodeHex( sRSAKeyVal.pD, &binD );
+    JS_BIN_decodeHex( sRSAKeyVal.pP, &binP );
+    JS_BIN_decodeHex( sRSAKeyVal.pQ, &binQ );
+    JS_BIN_decodeHex( sRSAKeyVal.pDMP1, &binDMP1 );
+    JS_BIN_decodeHex( sRSAKeyVal.pDMQ1, &binDMQ1 );
+    JS_BIN_decodeHex( sRSAKeyVal.pIQMP, &binIQMP );
+
+    TemplateAttribute *pta = pRRP->template_attribute;
+
+    for( int i = 0; i < pta->attribute_count; i++ )
+    {
+        if( pta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
+        {
+
+        }
+        else if( pta->attributes[i].type == KMIP_ATTR_NAME )
+        {
+            Name *pname = pta->attributes[i].value;
+
+            sTemplate[uCount].type = CKA_LABEL;
+            sTemplate[uCount].pValue = pname->value->value;
+            sTemplate[uCount].ulValueLen = pname->value->size;
+            uCount++;
+        }
+    }
+
+    sTemplate[uCount].type = CKA_MODULUS;
+    sTemplate[uCount].pValue = binN.pVal;
+    sTemplate[uCount].ulValueLen = binN.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
+    sTemplate[uCount].pValue = binE.pVal;
+    sTemplate[uCount].ulValueLen = binE.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PRIVATE_EXPONENT;
+    sTemplate[uCount].pValue = binD.pVal;
+    sTemplate[uCount].pValue = binD.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PRIME_1;
+    sTemplate[uCount].pValue = binP.pVal;
+    sTemplate[uCount].ulValueLen = binP.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PRIME_2;
+    sTemplate[uCount].pValue = binQ.pVal;
+    sTemplate[uCount].ulValueLen = binQ.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_EXPONENT_1;
+    sTemplate[uCount].pValue = binDMP1.pVal;
+    sTemplate[uCount].ulValueLen = binDMP1.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_EXPONENT_2;
+    sTemplate[uCount].pValue = binDMQ1.pVal;
+    sTemplate[uCount].ulValueLen = binDMQ1.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_COEFFICIENT;
+    sTemplate[uCount].pValue = binIQMP.pVal;
+    sTemplate[uCount].ulValueLen = binIQMP.nLen;
+    uCount++;
+
+
+    sTemplate[uCount].type = CKA_DECRYPT;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_EXTRACTABLE;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PRIVATE;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_SIGN;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_TOKEN;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+end :
+    JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
+    JS_BIN_reset( &binPri );
+    JS_BIN_reset( &binN );
+    JS_BIN_reset( &binE );
+    JS_BIN_reset( &binD );
+    JS_BIN_reset( &binP );
+    JS_BIN_reset( &binQ );
+    JS_BIN_reset( &binDMP1 );
+    JS_BIN_reset( &binDMQ1 );
+    JS_BIN_reset( &binIQMP );
+
+    return ret;
+}
+
+static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+{
+    int ret = 0;
+
+    CK_ATTRIBUTE sTemplate[20];
+    CK_ULONG    uCount = 0;
+    CK_OBJECT_HANDLE    hObject = 0;
+    CK_OBJECT_CLASS objClass = CKO_PUBLIC_KEY;
+    CK_KEY_TYPE keyType = CKK_RSA;
+    CK_BBOOL bTrue = CK_TRUE;
+    CK_BBOOL bFalse = CK_FALSE;
+    PublicKey *pPubKey = NULL;
+    KeyValue *pKeyValue = NULL;
+    ByteString *pMaterial = NULL;
+    int nLen = 0;
+
+    BIN     binN = {0};
+    BIN     binE = {0};
+    BIN     binPub = {0};
+    char    *pHexN = NULL;
+    char    *pHexE = NULL;
+
+
+    if( pRRP == NULL )
+        return JS_KMS_ERROR_NO_PAYLOAD;
+
+    sTemplate[uCount].type = CKA_CLASS;
+    sTemplate[uCount].pValue = &objClass;
+    sTemplate[uCount].ulValueLen = sizeof(objClass);
+    uCount++;
+
+    pPubKey = pRRP->object;
+
+    if( pPubKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
+    {
+        keyType = CKK_RSA;
+        sTemplate[uCount].type = CKA_KEY_TYPE;
+        sTemplate[uCount].pValue = &keyType;
+        sTemplate[uCount].ulValueLen = sizeof(keyType);
+        uCount++;
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        return ret;
+    }
+
+    sTemplate[uCount].type = CKA_ID;
+    sTemplate[uCount].pValue = pID->pVal;
+    sTemplate[uCount].ulValueLen = pID->nLen;
+    uCount++;
+
+    pKeyValue = pPubKey->key_block->key_value;
+
+    if( pKeyValue == NULL )
+    {
+        ret = JS_KMS_ERROR_NO_PAYLOAD;
+        return ret;
+    }
+
+    pMaterial = pKeyValue->key_material;
+
+    JS_BIN_set( &binPub, pMaterial->value, pMaterial->size );
+    ret = JS_PKI_getRSAPublicKeyVal( &binPub, &pHexE, &pHexN );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_INVALID_VALUE;
+        goto end;
+    }
+
+    JS_BIN_decodeHex( pHexE, &binE );
+    JS_BIN_decodeHex( pHexN, &binN );
+
+
+    TemplateAttribute *pta = pRRP->template_attribute;
+
+    for( int i = 0; i < pta->attribute_count; i++ )
+    {
+        if( pta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
+        {
+
+        }
+        else if( pta->attributes[i].type == KMIP_ATTR_NAME )
+        {
+            Name *pname = pta->attributes[i].value;
+
+            sTemplate[uCount].type = CKA_LABEL;
+            sTemplate[uCount].pValue = pname->value->value;
+            sTemplate[uCount].ulValueLen = pname->value->size;
+            uCount++;
+        }
+    }
+
+    sTemplate[uCount].type = CKA_MODULUS;
+    sTemplate[uCount].pValue = binN.pVal;
+    sTemplate[uCount].ulValueLen = binN.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
+    sTemplate[uCount].pValue = binE.pVal;
+    sTemplate[uCount].ulValueLen = binE.nLen;
+    uCount++;
+
+    sTemplate[uCount].type = CKA_ENCRYPT;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_TOKEN;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_VERIFY;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+
+end :
+    if( pHexE ) JS_free( pHexE );
+    if( pHexN ) JS_free( pHexN );
+    JS_BIN_reset( &binPub );
+    JS_BIN_reset( &binE );
+    JS_BIN_reset( &binN );
+
+    return ret;
+}
+
+static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+{
+    int ret = 0;
+
+    CK_ATTRIBUTE sTemplate[20];
+    CK_ULONG    uCount = 0;
+    CK_OBJECT_HANDLE    hObject = 0;
+    CK_OBJECT_CLASS objClass = CKO_SECRET_KEY;
+    CK_KEY_TYPE keyType = CKK_AES;
+    CK_BBOOL bTrue = CK_TRUE;
+    CK_BBOOL bFalse = CK_FALSE;
+    SymmetricKey *pSymKey = NULL;
+    KeyValue *pKeyValue = NULL;
+    ByteString *pMaterial = NULL;
+    int nLen = 0;
+
+
+    if( pRRP == NULL )
+        return JS_KMS_ERROR_NO_PAYLOAD;
+
+    sTemplate[uCount].type = CKA_CLASS;
+    sTemplate[uCount].pValue = &objClass;
+    sTemplate[uCount].ulValueLen = sizeof(objClass);
+    uCount++;
+
+    pSymKey = pRRP->object;
+
+    if( pSymKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
+    {
+        keyType = CKK_AES;
+        sTemplate[uCount].type = CKA_KEY_TYPE;
+        sTemplate[uCount].pValue = &keyType;
+        sTemplate[uCount].ulValueLen = sizeof(keyType);
+        uCount++;
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        return ret;
+    }
+
+    if( pSymKey->key_block->cryptographic_length > 0 )
+    {
+        nLen = pSymKey->key_block->cryptographic_length;
+        nLen = nLen / 8;
+
+        sTemplate[uCount].type = CKA_VALUE_LEN;
+        sTemplate[uCount].pValue = &nLen;
+        sTemplate[uCount].ulValueLen = sizeof(nLen);
+        uCount++;
+    }
+
+    pKeyValue = pSymKey->key_block->key_value;
+
+    if( pKeyValue == NULL )
+    {
+        ret = JS_KMS_ERROR_NO_PAYLOAD;
+        return ret;
+    }
+
+    pMaterial = pKeyValue->key_material;
+
+    sTemplate[uCount].type = CKA_VALUE;
+    sTemplate[uCount].pValue = pMaterial->value;
+    sTemplate[uCount].ulValueLen  = pMaterial->size;
+    uCount++;
+
+    TemplateAttribute *pta = pRRP->template_attribute;
+
+    for( int i = 0; i < pta->attribute_count; i++ )
+    {
+        if( pta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
+        {
+
+        }
+        else if( pta->attributes[i].type == KMIP_ATTR_NAME )
+        {
+            Name *pname = pta->attributes[i].value;
+
+            sTemplate[uCount].type = CKA_LABEL;
+            sTemplate[uCount].pValue = pname->value->value;
+            sTemplate[uCount].ulValueLen = pname->value->size;
+            uCount++;
+        }
+    }
+
+    sTemplate[uCount].type = CKA_TOKEN;
+    sTemplate[uCount].pValue = bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_ENCRYPT;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_DECRYPT;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_PRIVATE;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    sTemplate[uCount].type = CKA_EXTRACTABLE;
+    sTemplate[uCount].pValue = &bTrue;
+    sTemplate[uCount].ulValueLen = sizeof(bTrue);
+    uCount++;
+
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        return ret;
+    }
+
+    return 0;
+}
+
 int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
 {
     int ret = 0;
+    int nSeq = 0;
+    char sSeq[16];
+    int nType = 0;
+    BIN binID = {0};
+
+    JDB_KMS sKMS;
+    char    sInfo[128];
+
     RegisterRequestPayload *pRRP = (RegisterRequestPayload *)pReqItem->request_payload;
 
     pRspItem->operation = pReqItem->operation;
 
-    return 0;
+    memset( sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMS, 0x00, sizeof(sKMS));
+
+    nSeq = JS_DB_getSeq( db, "TB_KMS" );
+    if( nSeq < 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    sprintf( sSeq, "%d", nSeq );
+    JS_BIN_set( &binID, sSeq, strlen(sSeq));
+
+    if( pRRP->object_type == KMIP_OBJTYPE_CERTIFICATE )
+    {
+        nType = JS_KMS_OBJECT_TYPE_CERT;
+        sprintf( sInfo, "%s", "Certificate" );
+
+        ret = registerCert( &binID, pRRP );
+    }
+    else if( pRRP->object_type == KMIP_OBJTYPE_PRIVATE_KEY )
+    {
+        nType = JS_KMS_OBJECT_TYPE_PRIKEY;
+        sprintf( sInfo, "%s", "PrivateKey" );
+        ret = registerPriKey( &binID, pRRP );
+    }
+    else if( pRRP->object_type == KMIP_OBJTYPE_PUBLIC_KEY )
+    {
+        nType = JS_KMS_OBJECT_TYPE_PUBKEY;
+        sprintf( sInfo, "%s", "PublicKey" );
+        ret = registerPubKey( &binID, pRRP );
+    }
+    else if( pRRP->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
+    {
+        nType = JS_KMS_OBJECT_TYPE_SECRET;
+        sprintf( sInfo, "%s", "SecretKey" );
+        ret = registerSecretKey( &binID, pRRP );
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    if( ret != 0 ) goto end;
+
+    RegisterResponsePayload *pRSP = (RegisterResponsePayload *)JS_calloc( 1, sizeof(RegisterResponsePayload));
+
+    pRSP->unique_identifier->value = binID.pVal;
+    pRSP->unique_identifier->size = binID.nLen;
+
+    pRspItem->response_payload = pRSP;
+
+    JS_DB_setKMS( &sKMS, nSeq, 0, nType, sInfo );
+    JS_DB_addKMS( db, &sKMS );
+
+end :
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        const char *pError = getErrorMsg( ret );
+        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+        pRspItem->result_message = JS_strdup( pError );
+        pRspItem->result_message->size = strlen( pError );
+
+        JS_BIN_reset( &binID );
+    }
+
+    JS_DB_resetKMS( &sKMS );
+    return ret;
 }
 
 int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)

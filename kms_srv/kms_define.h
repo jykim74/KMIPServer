@@ -10,6 +10,7 @@
 #define JS_KMS_ERROR_FAIL_GEN_KEY           1004
 #define JS_KMS_ERROR_NO_PAYLOAD             1005
 #define JS_KMS_ERROR_NOT_SUPPORT_PARAM      1006
+#define JS_KMS_ERROR_INVALID_VALUE          1007
 
 const char *getErrorMsg( int nNum );
 

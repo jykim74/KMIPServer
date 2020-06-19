@@ -9,6 +9,7 @@ static JNumVal      sErrList[] = {
     { JS_KMS_ERROR_FAIL_GEN_KEY, "fail to generate key" },
     { JS_KMS_ERROR_NO_PAYLOAD, "no payload" },
     { JS_KMS_ERROR_NOT_SUPPORT_PARAM, "not support parameter" },
+    { JS_KMS_ERROR_INVALID_VALUE, "invalid value" },
 };
 
 const char *getErrorMsg( int nNum )
