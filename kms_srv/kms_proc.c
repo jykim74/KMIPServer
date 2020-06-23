@@ -450,6 +450,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     CK_MECHANISM stMech = {0};
     unsigned char *pEncData = NULL;
     long uEncDataLen = 0;
+    int nMech = 0;
 
     EncryptRequestPayload *pERP = (EncryptRequestPayload *)pReqItem->request_payload;
     if( pERP == NULL )
@@ -468,6 +469,15 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
+    ret = JS_KMS_setMechParam( pERP->cryptographic_parameters, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    stMech.mechanism = nMech;
+/*
     if( pERP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
             pERP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
             pERP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
@@ -480,7 +490,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         goto end;
     }
-
+*/
     JS_BIN_set( &binPlain, pERP->data->value, pERP->data->size );
     JS_BIN_set( &binIV, pERP->iv_counter_nonce->value, pERP->iv_counter_nonce->size );
 
@@ -544,6 +554,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     CK_MECHANISM stMech = {0};
     unsigned char *pDecData = NULL;
     long uDecDataLen = 0;
+    int nMech = 0;
 
     DecryptRequestPayload *pDRP = (DecryptRequestPayload *)pReqItem->request_payload;
     if( pDRP == NULL )
@@ -562,6 +573,16 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
+    ret = JS_KMS_setMechParam( pDRP->cryptographic_parameters, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    stMech.mechanism = nMech;
+
+    /*
     if( pDRP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
             pDRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
             pDRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
@@ -574,6 +595,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         goto end;
     }
+    */
 
     JS_BIN_set( &binEncrypt, pDRP->data->value, pDRP->data->size );
     JS_BIN_set( &binIV, pDRP->iv_counter_nonce->value, pDRP->iv_counter_nonce->size );
@@ -639,6 +661,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
     CK_MECHANISM stMech = {0};
     unsigned char sSign[1024];
     long uSignLen = 0;
+    int nMech = 0;
 
     SignRequestPayload *pSRP = (SignRequestPayload *)pReqItem->request_payload;
 
@@ -652,7 +675,16 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
         goto end;
     }
 
+    ret = JS_KMS_setMechParam( pSRP->cryptographic_parameters, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
 
+    stMech.mechanism = nMech;
+
+    /*
     if( pSRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
             pSRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
             pSRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
@@ -665,6 +697,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         goto end;
     }
+    */
 
     JS_BIN_set( &binData, pSRP->data->value, pSRP->data->size );
 
@@ -719,6 +752,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     BIN binSign = {0};
     BIN binData = {0};
     CK_OBJECT_HANDLE    sObjects[20];
+    int nMech = 0;
 
     CK_MECHANISM stMech = {0};
 
@@ -734,7 +768,16 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         goto end;
     }
 
+    ret = JS_KMS_setMechParam( pVRP->cryptographic_parameters, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
 
+    stMech.mechanism = nMech;
+
+    /*
     if( pVRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
             pVRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
             pVRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
@@ -747,6 +790,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         goto end;
     }
+    */
 
     JS_BIN_set( &binData, pVRP->data->value, pVRP->data->size );
     JS_BIN_set( &binSign, pVRP->signature_data->value, pVRP->signature_data->size );
