@@ -13,6 +13,16 @@
 extern JP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
 
+static void _setErrorResponse( int nErrorCode, ResponseBatchItem *pRspItem )
+{
+    const char *pError = getErrorMsg( nErrorCode );
+    pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
+    pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
+    pRspItem->result_message = (TextString *)JS_malloc(sizeof(TextString));
+    pRspItem->result_message->value = JS_strdup( pError );
+    pRspItem->result_message->size = strlen( pError );
+}
+
 long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR *pObjects )
 {
     int ret = 0;
@@ -136,12 +146,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
-
+        _setErrorResponse( ret, pRspItem );
         JS_BIN_reset( &binVal );
     }
 
@@ -183,8 +188,9 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     }
 
     printf( "Seq : %d\n", nSeq );
-    JS_DB_setKMS( &sKMS, nSeq, 0, 0, "SymKey" );
+
     sprintf( sID, "%d", nSeq );
+    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, JS_KMS_OBJECT_TYPE_SECRET, sID, "SymKey" );
 
     if( crp->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
     {
@@ -301,11 +307,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
     }
 
     JS_DB_resetKMS( &sKMS );
@@ -367,11 +369,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
     }
 
     JS_BIN_reset( &binID );
@@ -433,11 +431,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
     }
 
     JS_BIN_reset( &binID );
@@ -523,11 +517,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
 
         if( pEncData ) JS_free( pEncData );
         JS_BIN_reset( &binID );
@@ -616,11 +606,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
 
         if( pDecData ) JS_free( pDecData );
         JS_BIN_reset( &binID );
@@ -704,11 +690,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
 
         JS_BIN_reset( &binID );
     }
@@ -785,12 +767,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
-
+        _setErrorResponse( ret, pRspItem );
         JS_BIN_reset( &binID );
     }
 
@@ -846,6 +823,11 @@ static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
             sTemplate[uCount].pValue = pname->value->value;
             sTemplate[uCount].ulValueLen = pname->value->size;
             uCount++;
+
+            sTemplate[uCount].type = CKA_SUBJECT;
+            sTemplate[uCount].pValue = pname->value->value;
+            sTemplate[uCount].ulValueLen = pname->value->size;
+            uCount++;
         }
     }
 
@@ -856,7 +838,10 @@ static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
 
     ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
     if( ret != CKR_OK )
+    {
+        sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
         return JS_KMS_ERROR_SYSTEM;
+    }
 
     return 0;
 }
@@ -1035,6 +1020,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
     if( ret != 0 )
     {
+        sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
         ret = JS_KMS_ERROR_SYSTEM;
         goto end;
     }
@@ -1175,6 +1161,7 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
     if( ret != 0 )
     {
+        sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
         ret = JS_KMS_ERROR_SYSTEM;
         goto end;
     }
@@ -1230,7 +1217,7 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         return ret;
     }
-
+/*
     if( pSymKey->key_block->cryptographic_length > 0 )
     {
         nLen = pSymKey->key_block->cryptographic_length;
@@ -1241,7 +1228,7 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
         sTemplate[uCount].ulValueLen = sizeof(nLen);
         uCount++;
     }
-
+*/
     pKeyValue = pSymKey->key_block->key_value;
 
     if( pKeyValue == NULL )
@@ -1268,16 +1255,17 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
         else if( pta->attributes[i].type == KMIP_ATTR_NAME )
         {
             Name *pname = pta->attributes[i].value;
+            TextString *pText = pname->value;
 
             sTemplate[uCount].type = CKA_LABEL;
-            sTemplate[uCount].pValue = pname->value->value;
-            sTemplate[uCount].ulValueLen = pname->value->size;
+            sTemplate[uCount].pValue = pText->value;
+            sTemplate[uCount].ulValueLen = pText->size;
             uCount++;
         }
     }
 
     sTemplate[uCount].type = CKA_TOKEN;
-    sTemplate[uCount].pValue = bTrue;
+    sTemplate[uCount].pValue = &bTrue;
     sTemplate[uCount].ulValueLen = sizeof(bTrue);
     uCount++;
 
@@ -1304,6 +1292,7 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
     ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
     if( ret != CKR_OK )
     {
+        sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
         ret = JS_KMS_ERROR_SYSTEM;
         return ret;
     }
@@ -1373,13 +1362,13 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     if( ret != 0 ) goto end;
 
     RegisterResponsePayload *pRSP = (RegisterResponsePayload *)JS_calloc( 1, sizeof(RegisterResponsePayload));
-
+    pRSP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pRSP->unique_identifier->value = binID.pVal;
     pRSP->unique_identifier->size = binID.nLen;
 
     pRspItem->response_payload = pRSP;
 
-    JS_DB_setKMS( &sKMS, nSeq, 0, nType, sInfo );
+    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, sSeq, sInfo );
     JS_DB_addKMS( db, &sKMS );
 
 end :
@@ -1389,11 +1378,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
 
         JS_BIN_reset( &binID );
     }
@@ -1440,6 +1425,8 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 
     JDB_KMS sPriKMS;
     JDB_KMS sPubKMS;
+
+    time_t now_t = time(NULL);
 
     CreateKeyPairRequestPayload *crp = (CreateKeyPairRequestPayload *)pReqItem->request_payload;
 
@@ -1633,8 +1620,8 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 
     pRspItem->response_payload = csp;
 
-    JS_DB_setKMS( &sPriKMS, nPriSeq, 0, 1, "privatekey" );
-    JS_DB_setKMS( &sPubKMS, nPubSeq, 0, 2, sPriSeq );
+    JS_DB_setKMS( &sPriKMS, nPriSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PRIKEY, sPriSeq, "PrivateKey" );
+    JS_DB_setKMS( &sPubKMS, nPubSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PUBKEY, sPubSeq, "PublicKey" );
 
     JS_DB_addKMS( db, &sPriKMS );
     JS_DB_addKMS( db, &sPubKMS );
@@ -1646,11 +1633,7 @@ end :
     }
     else
     {
-        const char *pError = getErrorMsg( ret );
-        pRspItem->result_status = KMIP_STATUS_OPERATION_FAILED;
-        pRspItem->result_reason = KMIP_REASON_GENERAL_FAILURE;
-        pRspItem->result_message = JS_strdup( pError );
-        pRspItem->result_message->size = strlen( pError );
+        _setErrorResponse( ret, pRspItem );
     }
 
     JS_BIN_reset( &binECParam );
