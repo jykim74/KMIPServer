@@ -458,6 +458,8 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
+    pRspItem->operation = pReqItem->operation;
+
     JS_BIN_set( &binID, pERP->unique_identifier->value, pERP->unique_identifier->size );
     ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
     if( ret < 1 )
@@ -480,7 +482,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     JS_BIN_set( &binPlain, pERP->data->value, pERP->data->size );
-    JS_BIN_set( &binID, pERP->iv_counter_nonce->value, pERP->iv_counter_nonce->size );
+    JS_BIN_set( &binIV, pERP->iv_counter_nonce->value, pERP->iv_counter_nonce->size );
 
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
@@ -493,6 +495,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     pEncData = (unsigned char *)JS_malloc( binPlain.nLen + 64 );
+    uEncDataLen = binPlain.nLen + 64;
 
     ret = JS_PKCS11_Encrypt( g_pP11CTX, g_hSession, binPlain.pVal, binPlain.nLen, pEncData, &uEncDataLen );
     if( ret != 0 )
@@ -502,9 +505,11 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     EncryptResponsePayload *pESP = (EncryptResponsePayload *)JS_calloc( 1, sizeof(EncryptResponsePayload));
+    pESP->data = (ByteString *)JS_malloc(sizeof(ByteString));
     pESP->data->value = pEncData;
     pESP->data->size = uEncDataLen;
 
+    pESP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pESP->unique_identifier->value = binID.pVal;
     pESP->unique_identifier->size = binID.nLen;
 
@@ -547,6 +552,8 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
+    pRspItem->operation = pReqItem->operation;
+
     JS_BIN_set( &binID, pDRP->unique_identifier->value, pDRP->unique_identifier->size );
     ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
     if( ret < 1 )
@@ -569,7 +576,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     JS_BIN_set( &binEncrypt, pDRP->data->value, pDRP->data->size );
-    JS_BIN_set( &binID, pDRP->iv_counter_nonce->value, pDRP->iv_counter_nonce->size );
+    JS_BIN_set( &binIV, pDRP->iv_counter_nonce->value, pDRP->iv_counter_nonce->size );
 
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
@@ -582,6 +589,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     pDecData = (unsigned char *)JS_malloc( binEncrypt.nLen + 64 );
+    uDecDataLen = binEncrypt.nLen + 64;
 
     ret = JS_PKCS11_Decrypt( g_pP11CTX, g_hSession, binEncrypt.pVal, binEncrypt.nLen, pDecData, &uDecDataLen );
     if( ret != 0 )
@@ -591,9 +599,11 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     DecryptResponsePayload *pDSP = (DecryptResponsePayload *)JS_calloc( 1, sizeof(DecryptResponsePayload));
+    pDSP->data = (ByteString *)JS_malloc(sizeof(ByteString));
     pDSP->data->value = pDecData;
     pDSP->data->size = uDecDataLen;
 
+    pDSP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pDSP->unique_identifier->value = binID.pVal;
     pDSP->unique_identifier->size = binID.nLen;
 
@@ -644,7 +654,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
 
 
     if( pSRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
-            pSRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pSRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
             pSRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
     {
         stMech.mechanism = CKM_SHA256_RSA_PKCS;
@@ -665,6 +675,8 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
         goto end;
     }
 
+    uSignLen = sizeof(sSign);
+
     ret = JS_PKCS11_Sign( g_pP11CTX, g_hSession, binData.pVal, binData.nLen, sSign, &uSignLen );
     if( ret != CKR_OK )
     {
@@ -674,10 +686,12 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
 
     SignResponsePayload *pSSP = (SignResponsePayload *)JS_calloc( 1, sizeof(SignResponsePayload));
 
+    pSSP->signature_data = (ByteString *)JS_malloc(sizeof(ByteString));
     pSSP->signature_data->value = JS_malloc( uSignLen );
     memcpy( pSSP->signature_data->value, sSign, uSignLen );
     pSSP->signature_data->size = uSignLen;
 
+    pSSP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pSSP->unique_identifier->value = binID.pVal;
     pSSP->unique_identifier->size = binID.nLen;
 
@@ -713,7 +727,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     pRspItem->operation = pReqItem->operation;
 
     JS_BIN_set( &binID, pVRP->unique_identifier->value, pVRP->unique_identifier->size );
-    ret = findObjects( CKO_PRIVATE_KEY, &binID, sObjects );
+    ret = findObjects( CKO_PUBLIC_KEY, &binID, sObjects );
     if( ret < 1 )
     {
         ret = JS_KMS_ERROR_NO_OBJECT;
@@ -722,7 +736,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
 
 
     if( pVRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
-            pVRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
+            pVRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
             pVRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
     {
         stMech.mechanism = CKM_SHA256_RSA_PKCS;
@@ -755,6 +769,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
 
     pVSP->validity_indicator = KMIP_VALIDITY_VALID;
 
+    pVSP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pVSP->unique_identifier->value = binID.pVal;
     pVSP->unique_identifier->size = binID.nLen;
 
@@ -1649,6 +1664,8 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 {
     int ret = 0;
 
+    pRspItem->operation = pReqItem->operation;
+
     if( pReqItem->operation == KMIP_OP_GET )
     {
         ret = runGet( db, pReqItem, pRspItem );
@@ -1706,7 +1723,7 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
     RequestMessage  reqm = {0};
     ResponseMessage rspm = {0};
     ResponseBatchItem rspBatch = {0};
-    kmip_init(&ctx, NULL, 0, KMIP_1_0);
+    kmip_init(&ctx, NULL, 0, KMIP_1_2);
     memset( &reqm, 0x00, sizeof(reqm));
 
 
