@@ -9,6 +9,7 @@
 #include "js_db.h"
 #include "js_kms.h"
 #include "js_pki.h"
+#include "js_pki_tools.h"
 
 extern JP11_CTX    *g_pP11CTX;
 extern CK_SESSION_HANDLE    g_hSession;
@@ -921,6 +922,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     ByteString *pMaterial = NULL;
     int nLen = 0;
     JRSAKeyVal      sRSAKeyVal;
+    JECKeyVal       sECKeyVal;
 
     BIN     binN = {0};
     BIN     binE = {0};
@@ -931,12 +933,16 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     BIN     binDMQ1 = {0};
     BIN     binIQMP = {0};
 
+    BIN     binECParam = {0};
+    BIN     binECPrivate = {0};
+
     BIN     binPri = {0};
 
     if( pRRP == NULL )
         return JS_KMS_ERROR_NO_PAYLOAD;
 
     memset( &sRSAKeyVal, 0x00, sizeof(sRSAKeyVal));
+    memset( &sECKeyVal, 0x00, sizeof(sECKeyVal));
 
     sTemplate[uCount].type = CKA_CLASS;
     sTemplate[uCount].pValue = &objClass;
@@ -948,6 +954,14 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     if( pPriKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
     {
         keyType = CKK_RSA;
+        sTemplate[uCount].type = CKA_KEY_TYPE;
+        sTemplate[uCount].pValue = &keyType;
+        sTemplate[uCount].ulValueLen = sizeof(keyType);
+        uCount++;
+    }
+    else if( pPriKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_ECDSA )
+    {
+        keyType = CKK_ECDSA;
         sTemplate[uCount].type = CKA_KEY_TYPE;
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
@@ -975,22 +989,6 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     pMaterial = pKeyValue->key_material;
     JS_BIN_set( &binPri, pMaterial->value, pMaterial->size );
 
-    ret = JS_PKI_getRSAKeyVal( &binPri, &sRSAKeyVal );
-    if( ret != 0 )
-    {
-        ret = JS_KMS_ERROR_INVALID_VALUE;
-        goto end;
-    }
-
-    JS_BIN_decodeHex( sRSAKeyVal.pN, &binN );
-    JS_BIN_decodeHex( sRSAKeyVal.pE, &binE );
-    JS_BIN_decodeHex( sRSAKeyVal.pD, &binD );
-    JS_BIN_decodeHex( sRSAKeyVal.pP, &binP );
-    JS_BIN_decodeHex( sRSAKeyVal.pQ, &binQ );
-    JS_BIN_decodeHex( sRSAKeyVal.pDMP1, &binDMP1 );
-    JS_BIN_decodeHex( sRSAKeyVal.pDMQ1, &binDMQ1 );
-    JS_BIN_decodeHex( sRSAKeyVal.pIQMP, &binIQMP );
-
     TemplateAttribute *pta = pRRP->template_attribute;
 
     for( int i = 0; i < pta->attribute_count; i++ )
@@ -1008,47 +1006,98 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
             sTemplate[uCount].ulValueLen = pname->value->size;
             uCount++;
         }
+        else if( pta->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+        {
+            enum recommended_curve *curve = pta->attributes[i].value;
+
+            ret = JS_KMS_getECParam( *curve, &binECParam );
+            if( ret != 0 )
+            {
+                ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+                goto end;
+            }
+
+            sTemplate[uCount].type = CKA_EC_PARAMS;
+            sTemplate[uCount].pValue = binECParam.pVal;
+            sTemplate[uCount].ulValueLen = binECParam.nLen;
+            uCount++;
+        }
     }
 
-    sTemplate[uCount].type = CKA_MODULUS;
-    sTemplate[uCount].pValue = binN.pVal;
-    sTemplate[uCount].ulValueLen = binN.nLen;
-    uCount++;
+    if( keyType == CKK_RSA )
+    {
+        ret = JS_PKI_getRSAKeyVal( &binPri, &sRSAKeyVal );
+        if( ret != 0 )
+        {
+            ret = JS_KMS_ERROR_INVALID_VALUE;
+            goto end;
+        }
 
-    sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
-    sTemplate[uCount].pValue = binE.pVal;
-    sTemplate[uCount].ulValueLen = binE.nLen;
-    uCount++;
+        JS_BIN_decodeHex( sRSAKeyVal.pN, &binN );
+        JS_BIN_decodeHex( sRSAKeyVal.pE, &binE );
+        JS_BIN_decodeHex( sRSAKeyVal.pD, &binD );
+        JS_BIN_decodeHex( sRSAKeyVal.pP, &binP );
+        JS_BIN_decodeHex( sRSAKeyVal.pQ, &binQ );
+        JS_BIN_decodeHex( sRSAKeyVal.pDMP1, &binDMP1 );
+        JS_BIN_decodeHex( sRSAKeyVal.pDMQ1, &binDMQ1 );
+        JS_BIN_decodeHex( sRSAKeyVal.pIQMP, &binIQMP );
 
-    sTemplate[uCount].type = CKA_PRIVATE_EXPONENT;
-    sTemplate[uCount].pValue = binD.pVal;
-    sTemplate[uCount].pValue = binD.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_MODULUS;
+        sTemplate[uCount].pValue = binN.pVal;
+        sTemplate[uCount].ulValueLen = binN.nLen;
+        uCount++;
 
-    sTemplate[uCount].type = CKA_PRIME_1;
-    sTemplate[uCount].pValue = binP.pVal;
-    sTemplate[uCount].ulValueLen = binP.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
+        sTemplate[uCount].pValue = binE.pVal;
+        sTemplate[uCount].ulValueLen = binE.nLen;
+        uCount++;
 
-    sTemplate[uCount].type = CKA_PRIME_2;
-    sTemplate[uCount].pValue = binQ.pVal;
-    sTemplate[uCount].ulValueLen = binQ.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_PRIVATE_EXPONENT;
+        sTemplate[uCount].pValue = binD.pVal;
+        sTemplate[uCount].pValue = binD.nLen;
+        uCount++;
 
-    sTemplate[uCount].type = CKA_EXPONENT_1;
-    sTemplate[uCount].pValue = binDMP1.pVal;
-    sTemplate[uCount].ulValueLen = binDMP1.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_PRIME_1;
+        sTemplate[uCount].pValue = binP.pVal;
+        sTemplate[uCount].ulValueLen = binP.nLen;
+        uCount++;
 
-    sTemplate[uCount].type = CKA_EXPONENT_2;
-    sTemplate[uCount].pValue = binDMQ1.pVal;
-    sTemplate[uCount].ulValueLen = binDMQ1.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_PRIME_2;
+        sTemplate[uCount].pValue = binQ.pVal;
+        sTemplate[uCount].ulValueLen = binQ.nLen;
+        uCount++;
 
-    sTemplate[uCount].type = CKA_COEFFICIENT;
-    sTemplate[uCount].pValue = binIQMP.pVal;
-    sTemplate[uCount].ulValueLen = binIQMP.nLen;
-    uCount++;
+        sTemplate[uCount].type = CKA_EXPONENT_1;
+        sTemplate[uCount].pValue = binDMP1.pVal;
+        sTemplate[uCount].ulValueLen = binDMP1.nLen;
+        uCount++;
+
+        sTemplate[uCount].type = CKA_EXPONENT_2;
+        sTemplate[uCount].pValue = binDMQ1.pVal;
+        sTemplate[uCount].ulValueLen = binDMQ1.nLen;
+        uCount++;
+
+        sTemplate[uCount].type = CKA_COEFFICIENT;
+        sTemplate[uCount].pValue = binIQMP.pVal;
+        sTemplate[uCount].ulValueLen = binIQMP.nLen;
+        uCount++;
+    }
+    else if( keyType == CKK_ECDSA )
+    {
+        ret = JS_PKI_getECKeyVal( &binPri, &sECKeyVal );
+        if( ret != 0 )
+        {
+            ret = JS_KMS_ERROR_INVALID_VALUE;
+            goto end;
+        }
+
+        JS_BIN_decodeHex( sECKeyVal.pPrivate, &binECPrivate );
+
+        sTemplate[uCount].type = CKA_VALUE;
+        sTemplate[uCount].pValue = binECPrivate.pVal;
+        sTemplate[uCount].ulValueLen = binECPrivate.nLen;
+        uCount++;
+    }
 
 
     sTemplate[uCount].type = CKA_DECRYPT;
@@ -1086,6 +1135,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
 
 end :
     JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
+    JS_PKI_resetECKeyVal( &sECKeyVal );
     JS_BIN_reset( &binPri );
     JS_BIN_reset( &binN );
     JS_BIN_reset( &binE );
@@ -1095,6 +1145,9 @@ end :
     JS_BIN_reset( &binDMP1 );
     JS_BIN_reset( &binDMQ1 );
     JS_BIN_reset( &binIQMP );
+
+    JS_BIN_reset( &binECParam );
+    JS_BIN_reset( &binECPrivate );
 
     return ret;
 }
@@ -1121,6 +1174,8 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     char    *pHexN = NULL;
     char    *pHexE = NULL;
 
+    BIN     binECParam = {0};
+
 
     if( pRRP == NULL )
         return JS_KMS_ERROR_NO_PAYLOAD;
@@ -1135,6 +1190,14 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     if( pPubKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
     {
         keyType = CKK_RSA;
+        sTemplate[uCount].type = CKA_KEY_TYPE;
+        sTemplate[uCount].pValue = &keyType;
+        sTemplate[uCount].ulValueLen = sizeof(keyType);
+        uCount++;
+    }
+    else if( pPubKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_ECDSA )
+    {
+        keyType = CKK_ECDSA;
         sTemplate[uCount].type = CKA_KEY_TYPE;
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
@@ -1162,15 +1225,6 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     pMaterial = pKeyValue->key_material;
 
     JS_BIN_set( &binPub, pMaterial->value, pMaterial->size );
-    ret = JS_PKI_getRSAPublicKeyVal( &binPub, &pHexE, &pHexN );
-    if( ret != 0 )
-    {
-        ret = JS_KMS_ERROR_INVALID_VALUE;
-        goto end;
-    }
-
-    JS_BIN_decodeHex( pHexE, &binE );
-    JS_BIN_decodeHex( pHexN, &binN );
 
 
     TemplateAttribute *pta = pRRP->template_attribute;
@@ -1190,17 +1244,53 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
             sTemplate[uCount].ulValueLen = pname->value->size;
             uCount++;
         }
+        else if( pta->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+        {
+            enum recommended_curve *curve = pta->attributes[i].value;
+
+            ret = JS_KMS_getECParam( *curve, &binECParam );
+            if( ret != 0 )
+            {
+                ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+                goto end;
+            }
+
+            sTemplate[uCount].type = CKA_EC_PARAMS;
+            sTemplate[uCount].pValue = binECParam.pVal;
+            sTemplate[uCount].ulValueLen = binECParam.nLen;
+            uCount++;
+        }
     }
 
-    sTemplate[uCount].type = CKA_MODULUS;
-    sTemplate[uCount].pValue = binN.pVal;
-    sTemplate[uCount].ulValueLen = binN.nLen;
-    uCount++;
+    if( keyType == CKK_RSA )
+    {
+        ret = JS_PKI_getRSAPublicKeyVal( &binPub, &pHexE, &pHexN );
+        if( ret != 0 )
+        {
+            ret = JS_KMS_ERROR_INVALID_VALUE;
+            goto end;
+        }
 
-    sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
-    sTemplate[uCount].pValue = binE.pVal;
-    sTemplate[uCount].ulValueLen = binE.nLen;
-    uCount++;
+        JS_BIN_decodeHex( pHexE, &binE );
+        JS_BIN_decodeHex( pHexN, &binN );
+
+        sTemplate[uCount].type = CKA_MODULUS;
+        sTemplate[uCount].pValue = binN.pVal;
+        sTemplate[uCount].ulValueLen = binN.nLen;
+        uCount++;
+
+        sTemplate[uCount].type = CKA_PUBLIC_EXPONENT;
+        sTemplate[uCount].pValue = binE.pVal;
+        sTemplate[uCount].ulValueLen = binE.nLen;
+        uCount++;
+    }
+    else if( keyType == CKK_ECDSA )
+    {
+        sTemplate[uCount].type = CKA_EC_POINT;
+        sTemplate[uCount].pValue = binPub.pVal;
+        sTemplate[uCount].ulValueLen = binPub.nLen;
+        uCount++;
+    }
 
     sTemplate[uCount].type = CKA_ENCRYPT;
     sTemplate[uCount].pValue = &bTrue;
@@ -1232,6 +1322,7 @@ end :
     JS_BIN_reset( &binPub );
     JS_BIN_reset( &binE );
     JS_BIN_reset( &binN );
+    JS_BIN_reset( &binECParam );
 
     return ret;
 }
@@ -1451,6 +1542,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     int ret = 0;
 
     int nLength = 2048;
+    int nCurve = 0;
     int nPriSeq = 0;
     int nPubSeq = 0;
 
@@ -1517,6 +1609,12 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
             {
                 int32 *length = tca->attributes[i].value;
                 nLength = *length;
+            }
+            else if( tca->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+            {
+                enum recommended_curve *curve;
+                curve = tca->attributes[i].value;
+                nCurve = *curve;
             }
         }
     }
@@ -1586,8 +1684,18 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
         uPubCount++;
     }
     else if( keyType == CKK_ECDSA )
-    {
+    {   
+        ret = JS_KMS_getECParam( nCurve, &binECParam );
+        if( ret != 0 )
+        {
+            ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+            goto end;
+        }
 
+        sPubTemplate[uPubCount].type = CKA_EC_PARAMS;
+        sPubTemplate[uPubCount].pValue = binECParam.pVal;
+        sPubTemplate[uPubCount].ulValueLen = binECParam.nLen;
+        uPubCount++;
     }
 
     sPubTemplate[uPubCount].type = CKA_LABEL;
