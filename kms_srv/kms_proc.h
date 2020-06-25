@@ -18,6 +18,7 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
 int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
 
 
+int isAuthentication( const Authentication *pAuth );
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );
 
 #endif // KMS_PROC_H

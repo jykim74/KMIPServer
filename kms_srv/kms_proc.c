@@ -1867,6 +1867,35 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     return ret;
 }
 
+int isAuthentication( const Authentication *pAuth )
+{
+    Credential *credential = pAuth->credential;
+
+    if( credential == NULL ) return 0;
+
+    if( credential->credential_type == KMIP_CRED_USERNAME_AND_PASSWORD )
+    {
+        UsernamePasswordCredential *pUPC = credential->credential_value;
+
+        char *pUserName = (char *)JS_calloc(1, pUPC->username->size + 1 );
+        memcpy( pUserName, pUPC->username->value, pUPC->username->size );
+
+        char *pPasswd = (char *)JS_calloc(1, pUPC->password->size + 1 );
+        memcpy( pPasswd, pUPC->password->value, pUPC->password->size );
+
+        printf( "UserName:%s Passwd:%s\n", pUserName, pPasswd );
+
+        if( pUserName ) JS_free( pUserName );
+        if( pPasswd ) JS_free( pPasswd );
+    }
+    else
+    {
+        return 0;
+    }
+
+
+    return 1;
+}
 
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
 {
@@ -1875,12 +1904,30 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
     RequestMessage  reqm = {0};
     ResponseMessage rspm = {0};
     ResponseBatchItem rspBatch = {0};
+    Authentication *pAuth = NULL;
     kmip_init(&ctx, NULL, 0, KMIP_1_2);
     memset( &reqm, 0x00, sizeof(reqm));
 
 
     kmip_set_buffer( &ctx, pReq->pVal, pReq->nLen );
     kmip_decode_request_message( &ctx, &reqm );
+
+    pAuth = reqm.request_header->authentication;
+
+    if( pAuth )
+    {
+        ret = isAuthentication( pAuth );
+        if( ret != 1 )
+        {
+            fprintf( stderr, "fail authentication\n" );
+            goto end;
+        }
+    }
+    else
+    {
+        fprintf( stderr, "need to authorization\n" );
+        goto end;
+    }
 
     kmip_print_request_message( &reqm );
 
