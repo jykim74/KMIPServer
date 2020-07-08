@@ -19,7 +19,7 @@ BIN         g_binPri = {0,0};
 BIN         g_binCert = {0,0};
 BIN         g_binCACert = {0,0};
 JP11_CTX   *g_pP11CTX = NULL;
-CK_SESSION_HANDLE   g_hSession = -1;
+
 const char  *g_pDBPath = "D:/data/ca.db";
 
 int KMS_Service( JThreadInfo *pThInfo )
@@ -132,7 +132,7 @@ int loginHSM()
     int ret = 0;
     int nFlags = 0;
 
-    CK_SESSION_HANDLE hSession = NULL;
+
     CK_ULONG uSlotCnt = 0;
     CK_SLOT_ID  sSlotList[10];
 
@@ -165,21 +165,20 @@ int loginHSM()
         return -1;
     }
 
-    ret = JS_PKCS11_OpenSession( g_pP11CTX, sSlotList[0], nFlags, &hSession );
+    ret = JS_PKCS11_OpenSession( g_pP11CTX, sSlotList[0], nFlags );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run opensession(%s:%x)\n", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
-    ret = JS_PKCS11_Login( g_pP11CTX, hSession, nUserType, pPin, uPinLen );
+    ret = JS_PKCS11_Login( g_pP11CTX, nUserType, pPin, uPinLen );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to run login hsm(%d)\n", ret );
         return -1;
     }
 
-    g_hSession = hSession;
     printf( "HSM login ok\n" );
 
     return 0;

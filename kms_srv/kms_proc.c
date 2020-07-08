@@ -12,7 +12,7 @@
 #include "js_pki_tools.h"
 
 extern JP11_CTX    *g_pP11CTX;
-extern CK_SESSION_HANDLE    g_hSession;
+
 
 static void _setErrorResponse( int nErrorCode, ResponseBatchItem *pRspItem )
 {
@@ -46,21 +46,21 @@ long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR 
     sTemplate[uCount].ulValueLen = pID->nLen;
     uCount++;
 
-    ret = JS_PKCS11_FindObjectsInit( g_pP11CTX, g_hSession, sTemplate, uCount );
+    ret = JS_PKCS11_FindObjectsInit( g_pP11CTX,sTemplate, uCount );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjectsInit(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
-    ret = JS_PKCS11_FindObjects( g_pP11CTX, g_hSession, pObjects, uMaxObjCnt, &uObjCnt );
+    ret = JS_PKCS11_FindObjects( g_pP11CTX, pObjects, uMaxObjCnt, &uObjCnt );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjects(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
-    ret = JS_PKCS11_FindObjectsFinal( g_pP11CTX, g_hSession );
+    ret = JS_PKCS11_FindObjectsFinal( g_pP11CTX );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjectsFinal(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -74,7 +74,7 @@ int getValue( CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_TYPE nType, BIN *pVal )
 {
     int ret = 0;
 
-    ret = JS_PKCS11_GetAtrributeValue2( g_pP11CTX, g_hSession, hObject, nType, pVal );
+    ret = JS_PKCS11_GetAtrributeValue2( g_pP11CTX, hObject, nType, pVal );
 
     return ret;
 }
@@ -272,7 +272,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
             }
         }
 
-        ret = JS_PKCS11_GenerateKey( g_pP11CTX, g_hSession, &sMech, sTemplate, uCount, &hObject );
+        ret = JS_PKCS11_GenerateKey( g_pP11CTX, &sMech, sTemplate, uCount, &hObject );
         if( ret != CKR_OK )
         {
             fprintf( stderr, "fail to run generate key(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -342,7 +342,7 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
-    ret = JS_PKCS11_DestroyObject( g_pP11CTX, g_hSession, sObjects[0] );
+    ret = JS_PKCS11_DestroyObject( g_pP11CTX, sObjects[0] );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to destroy object(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -498,7 +498,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
 
-    ret = JS_PKCS11_EncryptInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    ret = JS_PKCS11_EncryptInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != 0 )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -508,7 +508,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     pEncData = (unsigned char *)JS_malloc( binPlain.nLen + 64 );
     uEncDataLen = binPlain.nLen + 64;
 
-    ret = JS_PKCS11_Encrypt( g_pP11CTX, g_hSession, binPlain.pVal, binPlain.nLen, pEncData, &uEncDataLen );
+    ret = JS_PKCS11_Encrypt( g_pP11CTX, binPlain.pVal, binPlain.nLen, pEncData, &uEncDataLen );
     if( ret != 0 )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -604,7 +604,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
 
-    ret = JS_PKCS11_DecryptInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    ret = JS_PKCS11_DecryptInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != 0 )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -614,7 +614,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     pDecData = (unsigned char *)JS_malloc( binEncrypt.nLen + 64 );
     uDecDataLen = binEncrypt.nLen + 64;
 
-    ret = JS_PKCS11_Decrypt( g_pP11CTX, g_hSession, binEncrypt.pVal, binEncrypt.nLen, pDecData, &uDecDataLen );
+    ret = JS_PKCS11_Decrypt( g_pP11CTX, binEncrypt.pVal, binEncrypt.nLen, pDecData, &uDecDataLen );
     if( ret != 0 )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -702,7 +702,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
 
     JS_BIN_set( &binData, pSRP->data->value, pSRP->data->size );
 
-    ret = JS_PKCS11_SignInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    ret = JS_PKCS11_SignInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != CKR_OK )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -711,7 +711,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
 
     uSignLen = sizeof(sSign);
 
-    ret = JS_PKCS11_Sign( g_pP11CTX, g_hSession, binData.pVal, binData.nLen, sSign, &uSignLen );
+    ret = JS_PKCS11_Sign( g_pP11CTX, binData.pVal, binData.nLen, sSign, &uSignLen );
     if( ret != CKR_OK )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -796,14 +796,14 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     JS_BIN_set( &binData, pVRP->data->value, pVRP->data->size );
     JS_BIN_set( &binSign, pVRP->signature_data->value, pVRP->signature_data->size );
 
-    ret = JS_PKCS11_VerifyInit( g_pP11CTX, g_hSession, &stMech, sObjects[0] );
+    ret = JS_PKCS11_VerifyInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != CKR_OK )
     {
         ret = JS_KMS_ERROR_SYSTEM;
         goto end;
     }
 
-    ret = JS_PKCS11_Verify( g_pP11CTX, g_hSession, binData.pVal, binData.nLen, binSign.pVal, binSign.nLen );
+    ret = JS_PKCS11_Verify( g_pP11CTX, binData.pVal, binData.nLen, binSign.pVal, binSign.nLen );
     if( ret != CKR_OK )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -896,7 +896,7 @@ static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
     sTemplate[uCount].ulValueLen = sizeof(bTrue);
     uCount++;
 
-    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, sTemplate, uCount, &hObject );
     if( ret != CKR_OK )
     {
         sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -1125,7 +1125,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     sTemplate[uCount].ulValueLen = sizeof(bTrue);
     uCount++;
 
-    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, sTemplate, uCount, &hObject );
     if( ret != 0 )
     {
         sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -1307,7 +1307,7 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
     sTemplate[uCount].ulValueLen = sizeof(bTrue);
     uCount++;
 
-    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, sTemplate, uCount, &hObject );
     if( ret != 0 )
     {
         sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -1439,7 +1439,7 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
     sTemplate[uCount].ulValueLen = sizeof(bTrue);
     uCount++;
 
-    ret = JS_PKCS11_CreateObject( g_pP11CTX, g_hSession, sTemplate, uCount, &hObject );
+    ret = JS_PKCS11_CreateObject( g_pP11CTX, sTemplate, uCount, &hObject );
     if( ret != CKR_OK )
     {
         sprintf( g_pP11CTX->sLastLog, "%s:%d", JS_PKCS11_GetErrorMsg(ret), ret );
@@ -1769,7 +1769,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     sPriTemplate[uPriCount].ulValueLen = sizeof(bTrue);
     uPriCount++;
 
-    ret = JS_PKCS11_GenerateKeyPair( g_pP11CTX, g_hSession, &stMech, sPubTemplate, uPubCount, sPriTemplate, uPriCount, &uPubHandle, &uPriHandle );
+    ret = JS_PKCS11_GenerateKeyPair( g_pP11CTX, &stMech, sPubTemplate, uPubCount, sPriTemplate, uPriCount, &uPubHandle, &uPriHandle );
     if( ret != CKR_OK )
     {
         ret = JS_KMS_ERROR_SYSTEM;
