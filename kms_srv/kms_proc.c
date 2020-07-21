@@ -79,21 +79,13 @@ int getValue( CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_TYPE nType, BIN *pVal )
     return ret;
 }
 
-int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
+static int _getSecretKey( const BIN *pID, int nKeyType, SymmetricKey **ppSymKey )
 {
     int ret = 0;
-    BIN binID = {0,0};
     BIN binVal = {0,0};
+
     CK_OBJECT_HANDLE    sObjects[20];
-
-
-    GetRequestPayload *grp = (GetRequestPayload *)pReqItem->request_payload;
-
-    JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
-
-    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
-
-    pRspItem->operation = pReqItem->operation;
+    ret = findObjects( CKO_SECRET_KEY, pID, sObjects );
 
     if( ret <= 0 )
     {
@@ -107,14 +99,6 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
         ret = JS_KMS_ERROR_FAIL_GET_VALUE;
         goto end;
     }
-
-    GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
-    gsp->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
-
-    gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
-    gsp->unique_identifier->size = binID.nLen;
-    gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
-    memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
 
     if( ret == CKR_OK )
     {
@@ -134,7 +118,310 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
         SymmetricKey *symmetric_key = (SymmetricKey *)JS_calloc(1, sizeof(SymmetricKey));
         symmetric_key->key_block = key_block;
 
-        gsp->object = symmetric_key;
+        *ppSymKey = symmetric_key;
+    }
+
+end :
+    return ret;
+}
+
+static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
+{
+    int ret = 0;
+    BIN binVal = {0,0};
+    BIN binPub = {0,0};
+    BIN binPub2 = {0,0};
+
+    CK_OBJECT_HANDLE    sObjects[20];
+    ret = findObjects( CKO_PUBLIC_KEY, pID, sObjects );
+
+    if( nKeyType == JS_PKI_KEY_TYPE_RSA )
+    {
+        JRSAKeyVal sRSAKeyVal;
+
+        BIN binExponet = {0,0};
+        BIN binModulus = {0,0};
+        char *pN = NULL;
+        char *pE = NULL;
+
+
+        memset( &sRSAKeyVal, 0x00, sizeof(sRSAKeyVal));
+
+        ret = getValue( sObjects[0], CKA_PUBLIC_EXPONENT, &binExponet );
+        ret = getValue( sObjects[0], CKA_MODULUS, &binModulus );
+
+        JS_BIN_encodeHex( &binExponet, &pE );
+        JS_BIN_encodeHex( &binModulus, &pN );
+
+        JS_PKI_setRSAKeyVal( &sRSAKeyVal, pN, pE, NULL, NULL, NULL, NULL, NULL, NULL );
+
+        JS_PKI_encodeRSAPublicKey( &sRSAKeyVal, &binPub, &binPub2 );
+
+        JS_BIN_reset( &binExponet );
+        JS_BIN_reset( &binModulus );
+        if( pE ) JS_free( pE );
+        if( pN ) JS_free( pN );
+        JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
+    }
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    {
+        ret = getValue( sObjects[0], CKA_EC_POINT, &binPub );
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    PublicKey *pPubKey = NULL;
+    pPubKey = (PublicKey *)JS_calloc(1, sizeof(PublicKey));
+
+    ByteString *material = (ByteString *)JS_calloc(1, sizeof(ByteString));
+    material->size = binPub.nLen;
+    material->value = binPub.pVal;
+
+    KeyValue *key_value = (KeyValue *)JS_calloc(1, sizeof(KeyValue));
+    key_value->key_material = material;
+
+    KeyBlock *key_block = (KeyBlock *)JS_calloc(1, sizeof(KeyBlock));
+    key_block->key_value = key_value;
+    key_block->key_format_type = KMIP_KEYFORMAT_RAW;
+    key_block->cryptographic_length = binVal.nLen * 8;
+
+    if( nKeyType == JS_PKI_KEY_TYPE_RSA )
+        key_block->cryptographic_algorithm = KMIP_CRYPTOALG_RSA;
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+        key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
+
+    pPubKey->key_block = key_block;
+
+ end :
+    JS_BIN_reset( &binPub2 );
+
+    return ret;
+}
+
+static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
+{
+    int ret = 0;
+    BIN binVal = {0,0};
+    BIN binPri = {0,0};
+
+    CK_OBJECT_HANDLE    sObjects[20];
+    ret = findObjects( CKO_PRIVATE_KEY, pID, sObjects );
+
+    if( nKeyType == JS_PKI_KEY_TYPE_RSA )
+    {
+        JRSAKeyVal sRSAKeyVal;
+
+        BIN binExponet = {0,0};
+        BIN binModulus = {0,0};
+        BIN binPriExponent = {0,0};
+
+        char *pN = NULL;
+        char *pE = NULL;
+        char *pD = NULL;
+
+        memset( &sRSAKeyVal, 0x00, sizeof(sRSAKeyVal));
+
+        ret = getValue( sObjects[0], CKA_PUBLIC_EXPONENT, &binExponet );
+        ret = getValue( sObjects[0], CKA_MODULUS, &binModulus );
+        ret = getValue( sObjects[0], CKA_PRIVATE_EXPONENT, &binPriExponent );
+
+        JS_BIN_encodeHex( &binExponet, &pE );
+        JS_BIN_encodeHex( &binModulus, &pN );
+        JS_BIN_encodeHex( &binPriExponent, &pD );
+
+        JS_PKI_setRSAKeyVal( &sRSAKeyVal, pN, pE, pD, NULL, NULL, NULL, NULL, NULL );
+
+        JS_PKI_encodeRSAPrivateKey( &sRSAKeyVal, &binPri );
+
+        JS_BIN_reset( &binExponet );
+        JS_BIN_reset( &binModulus );
+        JS_BIN_reset( &binPriExponent );
+        if( pE ) JS_free( pE );
+        if( pN ) JS_free( pN );
+        if( pD ) JS_free( pD );
+        JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
+    }
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    {
+        JECKeyVal sECKeyVal;
+
+        BIN binPoint = {0,0};
+        BIN binGroup = {0,0};
+        BIN binPriv = {0,0};
+
+        char *pPoint = NULL;
+        char *pGroup = NULL;
+        char *pPriv = NULL;
+
+        memset( &sECKeyVal, 0x00, sizeof(sECKeyVal));
+
+        ret = getValue( sObjects[0], CKA_EC_POINT, &binPoint );
+        ret = getValue( sObjects[0], CKA_EC_PARAMS, &binGroup );
+        ret = getValue( sObjects[0], CKA_VALUE, &binPriv );
+
+        JS_BIN_encodeHex( &binPoint, &pPoint );
+        JS_BIN_encodeHex( &binGroup, &pGroup );
+        JS_BIN_encodeHex( &binPriv, &pPriv );
+
+        JS_PKI_setECKeyVal( &sECKeyVal, pGroup, pPoint, pPriv );
+
+        JS_PKI_encodeECPrivateKey( &sECKeyVal, &binPri );
+
+        JS_BIN_reset( &binPoint );
+        JS_BIN_reset( &binGroup );
+        JS_BIN_reset( &binPriv );
+        if(pPoint) JS_free( pPoint );
+        if( pGroup ) JS_free( pGroup );
+        if( pPriv ) JS_free( pPriv );
+
+        JS_PKI_resetECKeyVal( &sECKeyVal );
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    PrivateKey *pPriKey = NULL;
+    pPriKey = (PrivateKey *)JS_calloc(1, sizeof(PrivateKey));
+
+    ByteString *material = (ByteString *)JS_calloc(1, sizeof(ByteString));
+    material->size = binPri.nLen;
+    material->value = binPri.pVal;
+
+    KeyValue *key_value = (KeyValue *)JS_calloc(1, sizeof(KeyValue));
+    key_value->key_material = material;
+
+    KeyBlock *key_block = (KeyBlock *)JS_calloc(1, sizeof(KeyBlock));
+    key_block->key_value = key_value;
+    key_block->key_format_type = KMIP_KEYFORMAT_RAW;
+    key_block->cryptographic_length = binVal.nLen * 8;
+
+    if( nKeyType == JS_PKI_KEY_TYPE_RSA )
+        key_block->cryptographic_algorithm = KMIP_CRYPTOALG_RSA;
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+        key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
+
+    pPriKey->key_block = key_block;
+
+ end :
+
+    return ret;
+}
+
+static int _getCert( const BIN *pID, Certificate **ppCert )
+{
+    int ret = 0;
+    BIN binVal = {0,0};
+
+    CK_OBJECT_HANDLE    sObjects[20];
+    ret = findObjects( CKO_CERTIFICATE, pID, sObjects );
+
+    if( ret <= 0 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    ret = getValue( sObjects[0], CKA_VALUE, &binVal );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_FAIL_GET_VALUE;
+        goto end;
+    }
+
+    if( ret == CKR_OK )
+    {
+        Certificate *pCert = NULL;
+        pCert = (Certificate *)JS_calloc( 1, sizeof(Certificate));
+        pCert->certificate_type = KMIP_CERT_X509;
+
+        ByteString *pCertVal = NULL;
+        pCertVal = (ByteString *)JS_calloc(1, sizeof(ByteString));
+
+        pCertVal->value = binVal.pVal;
+        pCertVal->size = binVal.nLen;
+
+        pCert->certificate_value = pCertVal;
+
+        *ppCert = pCert;
+    }
+
+
+end :
+
+    return ret;
+}
+
+int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
+{
+    int ret = 0;
+    BIN binID = {0,0};
+    BIN binVal = {0,0};
+
+    JDB_KMS sKMS;
+    char    sSeq[32];
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( sSeq, 0x00, sizeof(sSeq));
+
+    GetRequestPayload *grp = (GetRequestPayload *)pReqItem->request_payload;
+    pRspItem->operation = pReqItem->operation;
+
+    memcpy( sSeq, grp->unique_identifier->value, grp->unique_identifier->size );
+
+    JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
+
+    ret = JS_DB_getKMS( db, sSeq, &sKMS );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
+    gsp->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
+
+    gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
+    gsp->unique_identifier->size = binID.nLen;
+    gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
+    memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
+
+    if( sKMS.nType == JS_KMS_OBJECT_TYPE_CERT )
+    {
+        Certificate *pCert = NULL;
+        ret = _getCert( &binID, &pCert );
+
+        if( ret == 0 ) gsp->object = pCert;
+    }
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PRIKEY )
+    {
+        PrivateKey *pPriKey = NULL;
+        ret = _getPrivateKey( &binID, sKMS.nAlgorithm, &pPriKey );
+
+        if( ret == 0 ) gsp->object = pPriKey;
+    }
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PUBKEY )
+    {
+        PublicKey *pPubKey = NULL;
+        ret = _getPublicKey( &binID, sKMS.nAlgorithm, &pPubKey );
+
+        if( ret == 0 ) gsp->object = pPubKey;
+    }
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_SECRET )
+    {
+        SymmetricKey *pSymKey = NULL;
+        ret = _getSecretKey( &binID, sKMS.nAlgorithm, &pSymKey );
+
+        if( ret == 0 ) gsp->object = pSymKey;
+    }
+    else
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
     }
 
     pRspItem->response_payload = gsp;
@@ -151,6 +438,7 @@ end :
         JS_BIN_reset( &binVal );
     }
 
+    JS_DB_resetKMS( &sKMS );
     JS_BIN_reset( &binID );
     return ret;
 }
@@ -169,6 +457,8 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     int             *pnLen = NULL;
     int             *pnMask = NULL;
     long             uLen = 0;
+    int             nType = 0;
+    int             nKeyAlg = 0;
 
     CK_BBOOL bTrue = CK_TRUE;
     CK_BBOOL bFalse = CK_FALSE;
@@ -191,10 +481,13 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     printf( "Seq : %d\n", nSeq );
 
     sprintf( sID, "%d", nSeq );
-    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, JS_KMS_OBJECT_TYPE_SECRET, sID, "SymKey" );
+
 
     if( crp->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
     {
+        nType = JS_KMS_OBJECT_TYPE_SECRET;
+        nKeyAlg = JS_PKI_KEY_TYPE_AES;
+
         CK_OBJECT_CLASS keyClass = CKO_SECRET_KEY;
         sTemplate[uCount].type = CKA_CLASS;
         sTemplate[uCount].pValue = &keyClass;
@@ -298,6 +591,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         pRspItem->response_payload = pld;
     }
 
+    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, nKeyAlg, sID, "SymKey" );
     JS_DB_addKMS( db, &sKMS );
     ret = JS_KMS_OK;
 
@@ -906,7 +1200,7 @@ static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
     return 0;
 }
 
-static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP, int *pnKeyAlg )
 {
     int ret = 0;
 
@@ -958,6 +1252,8 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
+
+        *pnKeyAlg = JS_PKI_KEY_TYPE_RSA;
     }
     else if( pPriKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_ECDSA )
     {
@@ -966,6 +1262,8 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP )
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
+
+        *pnKeyAlg = JS_PKI_KEY_TYPE_ECC;
     }
     else
     {
@@ -1152,7 +1450,7 @@ end :
     return ret;
 }
 
-static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP, int *pnKeyAlg )
 {
     int ret = 0;
 
@@ -1194,6 +1492,8 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
+
+        *pnKeyAlg = JS_PKI_KEY_TYPE_RSA;
     }
     else if( pPubKey->key_block->cryptographic_algorithm == KMIP_CRYPTOALG_ECDSA )
     {
@@ -1202,6 +1502,8 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP )
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
+
+        *pnKeyAlg = JS_PKI_KEY_TYPE_ECC;
     }
     else
     {
@@ -1327,7 +1629,7 @@ end :
     return ret;
 }
 
-static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP )
+static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP, int *pnKeyAlg )
 {
     int ret = 0;
 
@@ -1361,6 +1663,8 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
         sTemplate[uCount].pValue = &keyType;
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
+
+        *pnKeyAlg = JS_PKI_KEY_TYPE_AES;
     }
     else
     {
@@ -1456,6 +1760,7 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     int nSeq = 0;
     char sSeq[16];
     int nType = 0;
+    int nKeyAlg = 0;
     BIN binID = {0};
 
     JDB_KMS sKMS;
@@ -1481,6 +1786,7 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     if( pRRP->object_type == KMIP_OBJTYPE_CERTIFICATE )
     {
         nType = JS_KMS_OBJECT_TYPE_CERT;
+        nKeyAlg = JS_PKI_KEY_TYPE_NONE;
         sprintf( sInfo, "%s", "Certificate" );
 
         ret = registerCert( &binID, pRRP );
@@ -1489,19 +1795,19 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     {
         nType = JS_KMS_OBJECT_TYPE_PRIKEY;
         sprintf( sInfo, "%s", "PrivateKey" );
-        ret = registerPriKey( &binID, pRRP );
+        ret = registerPriKey( &binID, pRRP, &nKeyAlg );
     }
     else if( pRRP->object_type == KMIP_OBJTYPE_PUBLIC_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_PUBKEY;
         sprintf( sInfo, "%s", "PublicKey" );
-        ret = registerPubKey( &binID, pRRP );
+        ret = registerPubKey( &binID, pRRP, &nKeyAlg );
     }
     else if( pRRP->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_SECRET;
         sprintf( sInfo, "%s", "SecretKey" );
-        ret = registerSecretKey( &binID, pRRP );
+        ret = registerSecretKey( &binID, pRRP, &nKeyAlg );
     }
     else
     {
@@ -1518,7 +1824,7 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
 
     pRspItem->response_payload = pRSP;
 
-    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, sSeq, sInfo );
+    JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, nKeyAlg, sSeq, sInfo );
     JS_DB_addKMS( db, &sKMS );
 
 end :
@@ -1545,6 +1851,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     int nCurve = 0;
     int nPriSeq = 0;
     int nPubSeq = 0;
+    int nKeyAlg = 0;
 
     char sPriSeq[16];
     char sPubSeq[16];
@@ -1655,10 +1962,12 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
         stMech.mechanism = CKM_RSA_PKCS_KEY_PAIR_GEN;
         uModulusBits = nLength;
         JS_BIN_decodeHex( "010001", &binExponent );
+        nKeyAlg = JS_PKI_KEY_TYPE_RSA;
     }
     else if( keyType == CKK_ECDSA )
     {
         stMech.mechanism = CKM_ECDSA_KEY_PAIR_GEN;
+        nKeyAlg = JS_PKI_KEY_TYPE_ECC;
     }
 
     sPubTemplate[uPubCount].type = CKA_CLASS;
@@ -1787,8 +2096,8 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 
     pRspItem->response_payload = csp;
 
-    JS_DB_setKMS( &sPriKMS, nPriSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PRIKEY, sPriSeq, "PrivateKey" );
-    JS_DB_setKMS( &sPubKMS, nPubSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PUBKEY, sPubSeq, "PublicKey" );
+    JS_DB_setKMS( &sPriKMS, nPriSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PRIKEY, nKeyAlg, sPriSeq, "PrivateKey" );
+    JS_DB_setKMS( &sPubKMS, nPubSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PUBKEY, nKeyAlg, sPubSeq, "PublicKey" );
 
     JS_DB_addKMS( db, &sPriKMS );
     JS_DB_addKMS( db, &sPubKMS );
