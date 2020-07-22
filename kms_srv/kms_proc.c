@@ -1907,7 +1907,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
                 enum cryptographic_algorithm *alg;
                 alg = tca->attributes[i].value;
 
-                if( *alg == KMIP_CRYPTOALG_EC )
+                if( *alg == KMIP_CRYPTOALG_EC || *alg == KMIP_CRYPTOALG_ECDSA )
                     keyType = CKK_ECDSA;
                 else
                     keyType = CKK_RSA;
