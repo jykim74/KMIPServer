@@ -194,6 +194,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
 
     pPubKey->key_block = key_block;
+    *ppPubKey = pPubKey;
 
  end :
     JS_BIN_reset( &binPub2 );
@@ -306,6 +307,7 @@ static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
 
     pPriKey->key_block = key_block;
+    *ppPriKey = pPriKey;
 
  end :
 
@@ -364,6 +366,7 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
 
     JDB_KMS sKMS;
     char    sSeq[32];
+    int     nSeq = 0;
 
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
@@ -372,57 +375,85 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
     pRspItem->operation = pReqItem->operation;
 
     memcpy( sSeq, grp->unique_identifier->value, grp->unique_identifier->size );
+    nSeq = atoi( sSeq );
 
     JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
 
-    ret = JS_DB_getKMS( db, sSeq, &sKMS );
-    if( ret != 0 )
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
     {
         ret = JS_KMS_ERROR_NO_OBJECT;
         goto end;
     }
 
     GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
-    gsp->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
 
-    gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
-    gsp->unique_identifier->size = binID.nLen;
-    gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
-    memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
 
     if( sKMS.nType == JS_KMS_OBJECT_TYPE_CERT )
     {
         Certificate *pCert = NULL;
         ret = _getCert( &binID, &pCert );
+        if( ret != 0 )
+        {
+            fprintf( stderr, "fail to get certificate(%d)\n", ret );
+            goto end;
+        }
 
-        if( ret == 0 ) gsp->object = pCert;
+        gsp->object_type = KMIP_OBJTYPE_CERTIFICATE;
+        gsp->object = pCert;
     }
     else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PRIKEY )
     {
         PrivateKey *pPriKey = NULL;
         ret = _getPrivateKey( &binID, sKMS.nAlgorithm, &pPriKey );
+        if( ret != 0 )
+        {
+            fprintf( stderr, "fail to get private key(%d)\n", ret );
+            goto end;
+        }
 
-        if( ret == 0 ) gsp->object = pPriKey;
+        gsp->object_type = KMIP_OBJTYPE_PRIVATE_KEY;
+        gsp->object = pPriKey;
+
     }
     else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PUBKEY )
     {
         PublicKey *pPubKey = NULL;
         ret = _getPublicKey( &binID, sKMS.nAlgorithm, &pPubKey );
 
-        if( ret == 0 ) gsp->object = pPubKey;
+        if( ret != 0 )
+        {
+            fprintf( stderr, "fail to get public key(%d)\n", ret );
+            goto end;
+        }
+
+        gsp->object_type = KMIP_OBJTYPE_PUBLIC_KEY;
+        gsp->object = pPubKey;
     }
     else if( sKMS.nType == JS_KMS_OBJECT_TYPE_SECRET )
     {
         SymmetricKey *pSymKey = NULL;
         ret = _getSecretKey( &binID, sKMS.nAlgorithm, &pSymKey );
 
-        if( ret == 0 ) gsp->object = pSymKey;
+        if( ret != 0 )
+        {
+            fprintf( stderr, "fail to get secret key(%d)\n", ret );
+            goto end;
+        }
+
+        gsp->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
+        gsp->object = pSymKey;
     }
     else
     {
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
         goto end;
     }
+
+    gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
+    gsp->unique_identifier->size = binID.nLen;
+    gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
+    memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
 
     pRspItem->response_payload = gsp;
     ret = JS_KMS_OK;
@@ -478,6 +509,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         goto end;
     }
 
+    nSeq++;
     printf( "Seq : %d\n", nSeq );
 
     sprintf( sID, "%d", nSeq );
@@ -1780,6 +1812,7 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
         goto end;
     }
 
+    nSeq++;
     sprintf( sSeq, "%d", nSeq );
     JS_BIN_set( &binID, sSeq, strlen(sSeq));
 
@@ -1953,6 +1986,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     }
 
     nPriSeq = JS_DB_getSeq( db, "TB_KMS" );
+    nPriSeq++;
     nPubSeq = nPriSeq + 1;
     sprintf( sPriSeq, "%d", nPriSeq );
     sprintf( sPubSeq, "%d", nPubSeq );
