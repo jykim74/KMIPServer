@@ -13,6 +13,7 @@
 #include "js_kms.h"
 #include "js_pkcs11.h"
 #include "js_db.h"
+#include "js_gen.h"
 
 SSL_CTX     *g_pSSLCTX = NULL;
 BIN         g_binPri = {0,0};
@@ -21,6 +22,51 @@ BIN         g_binCACert = {0,0};
 JP11_CTX   *g_pP11CTX = NULL;
 
 const char  *g_pDBPath = "D:/data/ca.db";
+
+int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
+{
+    int nSeq = 0;
+    JDB_Audit   sAudit;
+    char *pMAC = NULL;
+    char    sData[2048];
+    time_t now_t = 0;
+    BIN binSrc = {0,0};
+    BIN binKey = {0,0};
+    BIN binHMAC = {0,0};
+
+    memset( &sAudit, 0x00, sizeof(sAudit));
+
+    binKey.pVal = (unsigned char *)JS_GEN_HMAC_KEY;
+    binKey.nLen = strlen( JS_GEN_HMAC_KEY );
+
+    now_t = time(NULL);
+
+    nSeq = JS_DB_getSeq( db, "TB_AUDIT" );
+    nSeq++;
+
+    sprintf( sData, "%d_%d_%d_%s_%d_%s",
+             nSeq,
+             JS_GEN_KIND_KMS_SRV,
+             nOP,
+             pInfo,
+             now_t,
+             "kms" );
+
+    binSrc.pVal = (unsigned char *)sData;
+    binSrc.nLen = strlen(sData);
+
+    JS_PKI_genHMAC( "SHA256", &binSrc, &binKey, &binHMAC );
+    JS_BIN_encodeHex( &binHMAC, &pMAC );
+
+    JS_DB_setAudit( &sAudit, nSeq, now_t, JS_GEN_KIND_KMS_SRV, nOP, "kms", pInfo, pMAC );
+    JS_DB_addAudit( db, &sAudit );
+
+    JS_BIN_reset( &binHMAC );
+    if( pMAC ) JS_free( pMAC );
+    JS_DB_resetAudit( &sAudit );
+
+    return 0;
+}
 
 int KMS_Service( JThreadInfo *pThInfo )
 {
