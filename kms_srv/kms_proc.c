@@ -386,6 +386,12 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
         goto end;
     }
 
+    if( sKMS.nStatus == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
+
     GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
 
 
@@ -647,8 +653,12 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     BIN binID = {0,0};
     CK_OBJECT_HANDLE    sObjects[20];
     char sSeq[16];
+    int nSeq = -1;
+    JDB_KMS     sKMS;
+    long        uObjClass = -1;
 
     memset( sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMS, 0x00, sizeof(sKMS));
 
     DestroyRequestPayload *drp = (DestroyRequestPayload *)pReqItem->request_payload;
 
@@ -656,7 +666,32 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     JS_BIN_set( &binID, drp->unique_identifier->value, drp->unique_identifier->size );
     memcpy( sSeq, drp->unique_identifier->value, drp->unique_identifier->size );
 
-    ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
+    nSeq = atoi( sSeq );
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret != 1 )
+    {
+        fprintf( stderr, "fail to get seq(%d)\n", nSeq );
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    if( sKMS.nType == JS_KMS_OBJECT_TYPE_CERT )
+        uObjClass = CKO_CERTIFICATE;
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PRIKEY )
+        uObjClass = CKO_PRIVATE_KEY;
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PUBKEY )
+        uObjClass = CKO_PUBLIC_KEY;
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_SECRET )
+        uObjClass = CKO_SECRET_KEY;
+    else if( sKMS.nType == JS_KMS_OBJECT_TYPE_DATA )
+        uObjClass = CKO_DATA;
+    else
+    {
+        ret = JS_KMS_ERROR_INVALID_VALUE;
+        goto end;
+    }
+
+    ret = findObjects( uObjClass, &binID, sObjects );
 
     pRspItem->operation = pReqItem->operation;
 
@@ -749,7 +784,6 @@ int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     pRspItem->response_payload = asp;
 
     ret = JS_KMS_OK;
-    JS_DB_delKMS( db, atoi(sSeq));
 
 end :
     if( ret == JS_KMS_OK )
@@ -778,6 +812,13 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     unsigned char *pEncData = NULL;
     long uEncDataLen = 0;
     int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( sSeq, 0x00, sizeof(sSeq));
+
 
     EncryptRequestPayload *pERP = (EncryptRequestPayload *)pReqItem->request_payload;
     if( pERP == NULL )
@@ -786,7 +827,22 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
+    memcpy( sSeq, pERP->unique_identifier->value, pERP->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
     pRspItem->operation = pReqItem->operation;
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nStatus == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
 
     JS_BIN_set( &binID, pERP->unique_identifier->value, pERP->unique_identifier->size );
     ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
@@ -867,6 +923,7 @@ end :
 
     JS_BIN_reset( &binIV );
     JS_BIN_reset( &binPlain );
+    JS_DB_resetKMS( &sKMS );
 
     return ret;
 }
@@ -882,11 +939,34 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     unsigned char *pDecData = NULL;
     long uDecDataLen = 0;
     int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+    JDB_KMS sKMS;
+
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( sSeq, 0x00, sizeof(sSeq));
 
     DecryptRequestPayload *pDRP = (DecryptRequestPayload *)pReqItem->request_payload;
     if( pDRP == NULL )
     {
         ret = JS_KMS_ERROR_NO_PAYLOAD;
+        goto end;
+    }
+
+    memcpy( sSeq, pDRP->unique_identifier->value, pDRP->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nStatus == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
     }
 
@@ -973,6 +1053,7 @@ end :
 
     JS_BIN_reset( &binIV );
     JS_BIN_reset( &binEncrypt );
+    JS_DB_resetKMS( &sKMS );
 
     return ret;
 }
@@ -989,8 +1070,31 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
     unsigned char sSign[1024];
     long uSignLen = 0;
     int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+    JDB_KMS sKMS;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
 
     SignRequestPayload *pSRP = (SignRequestPayload *)pReqItem->request_payload;
+
+    memcpy( sSeq, pSRP->unique_identifier->value, pSRP->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nStatus == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
+
 
     pRspItem->operation = pReqItem->operation;
 
@@ -1069,6 +1173,7 @@ end :
         JS_BIN_reset( &binID );
     }
 
+    JS_DB_resetKMS( &sKMS );
     return ret;
 }
 
@@ -1080,10 +1185,33 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     BIN binData = {0};
     CK_OBJECT_HANDLE    sObjects[20];
     int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
 
     CK_MECHANISM stMech = {0};
 
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+
     SignatureVerifyRequestPayload *pVRP = (SignatureVerifyRequestPayload *)pReqItem->request_payload;
+
+    memcpy( sSeq, pVRP->unique_identifier->value, pVRP->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nStatus == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
 
     pRspItem->operation = pReqItem->operation;
 
@@ -1157,6 +1285,7 @@ end :
         JS_BIN_reset( &binID );
     }
 
+    JS_DB_resetKMS( &sKMS );
     return ret;
 }
 

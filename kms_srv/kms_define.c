@@ -10,6 +10,7 @@ static JNumVal      sErrList[] = {
     { JS_KMS_ERROR_NO_PAYLOAD, "no payload" },
     { JS_KMS_ERROR_NOT_SUPPORT_PARAM, "not support parameter" },
     { JS_KMS_ERROR_INVALID_VALUE, "invalid value" },
+    { JS_KMS_ERROR_NOT_ACTIVATE, "not activate" }
 };
 
 const char *getErrorMsg( int nNum )
