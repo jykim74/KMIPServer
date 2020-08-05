@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "js_pki.h"
 #include "js_http.h"
 #include "js_process.h"
 #include "js_db.h"
+#include "js_cfg.h"
 
 #include "kms_srv.h"
 #include "kms_proc.h"
@@ -22,6 +24,19 @@ BIN         g_binCACert = {0,0};
 JP11_CTX   *g_pP11CTX = NULL;
 
 const char  *g_pDBPath = "D:/data/ca.db";
+static char g_sConfigPath[1024];
+int g_nVerbose = 0;
+JEnvList    *g_pEnvList = NULL;
+
+static char g_sBuildInfo[1024];
+
+const char *getBuildInfo()
+{
+    sprintf( g_sBuildInfo, "Version: %s Build Date : %s %s",
+             JS_KMS_SRV_VERSION, __DATE__, __TIME__ );
+
+    return g_sBuildInfo;
+}
 
 int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
 {
@@ -149,7 +164,7 @@ end:
     return 0;
 }
 
-int Init()
+int initServer()
 {
     int ret = 0;
     const char *pCACertPath = "D:/certs/root_cert.der";
@@ -168,9 +183,24 @@ int Init()
 
     JS_PKCS11_LoadLibrary( &g_pP11CTX, pP11Path );
 
-    ret = loginHSM();
+    const char *value = NULL;
 
-    return ret;
+    ret = JS_CFG_readConfig( g_sConfigPath, &g_pEnvList );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
+        exit(0);
+    }
+
+    ret = loginHSM();
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to login in HSM(%d)\n", ret );
+        exit(0);
+    }
+
+    printf( "KMI Server Init OK\n" );
+    return 0;
 }
 
 int loginHSM()
@@ -230,10 +260,40 @@ int loginHSM()
     return 0;
 }
 
+void printUsage()
+{
+    printf( "JS KMS Server ( %s )\n", getBuildInfo() );
+    printf( "[Options]\n" );
+    printf( "-v         : Verbose on(%d)\n", g_nVerbose );
+    printf( "-c config : set config file(%s)\n", g_sConfigPath );
+    printf( "-h         : Print this message\n" );
+}
+
 #if 1
 int main( int argc, char *argv[] )
 {
-    Init();
+    int nOpt = 0;
+
+    sprintf( g_sConfigPath, "%s", "../kms_srv.cfg" );
+
+    while(( nOpt = getopt( argc, argv, "c:vh")) != -1 )
+    {
+        switch( nOpt ) {
+        case 'h':
+            printUsage();
+            return 0;
+
+        case 'v':
+            g_nVerbose = 1;
+            break;
+
+        case 'c':
+            sprintf( g_sConfigPath, "%s", optarg );
+            break;
+        }
+    }
+
+    initServer();
 
     JS_THD_logInit( "./log", "kms", 2 );
     JS_THD_registerService( "JS_KMS", NULL, 9040, 4, NULL, KMS_Service );

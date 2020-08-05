@@ -7,6 +7,7 @@
 #include "kmip.h"
 #include "js_thread.h"
 
+#define     JS_KMS_SRV_VERSION          "0.9.1"
 
 int KMS_Service( JThreadInfo *pThInfo );
 int KMS_SSL_Service( JThreadInfo *pThInfo );
