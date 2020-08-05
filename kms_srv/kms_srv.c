@@ -23,7 +23,7 @@ BIN         g_binCert = {0,0};
 BIN         g_binCACert = {0,0};
 JP11_CTX   *g_pP11CTX = NULL;
 
-const char  *g_pDBPath = "D:/data/ca.db";
+const char  *g_pDBPath = NULL;
 static char g_sConfigPath[1024];
 int g_nVerbose = 0;
 JEnvList    *g_pEnvList = NULL;
@@ -167,22 +167,6 @@ end:
 int initServer()
 {
     int ret = 0;
-    const char *pCACertPath = "D:/certs/root_cert.der";
-    const char *pCertPath = "D:/certs/server_cert.der";
-    const char *pPriPath = "D:/certs/server_key.der";
-//    const char *pP11Path = "/usr/local/lib/softhsm/libsofthsm2.so";
-    const char *pP11Path = "D:/SoftHSM2/lib/softhsm2.dll";
-
-    JS_BIN_fileRead( pCACertPath, &g_binCACert );
-    JS_BIN_fileRead( pCertPath, &g_binCert );
-    JS_BIN_fileRead( pPriPath, &g_binPri );
-
-    JS_SSL_initServer( &g_pSSLCTX );
-    JS_SSL_setCertAndPriKey( g_pSSLCTX, &g_binPri, &g_binCert );
-    JS_SSL_setClientCACert( g_pSSLCTX, &g_binCACert );
-
-    JS_PKCS11_LoadLibrary( &g_pP11CTX, pP11Path );
-
     const char *value = NULL;
 
     ret = JS_CFG_readConfig( g_sConfigPath, &g_pEnvList );
@@ -191,6 +175,69 @@ int initServer()
         fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
         exit(0);
     }
+
+    value = JS_CFG_getValue( g_pEnvList, "SSL_CA_CERT_PATH" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "You have to set 'SSL_CA_CERT_PATH'\n" );
+        exit(0);
+    }
+
+    ret = JS_BIN_fileRead( value, &g_binCACert );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to read ssl ca cert(%s)\n", value );
+        exit(0);
+    }
+
+    value = JS_CFG_getValue( g_pEnvList, "SSL_CERT_PATH" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "You have to set 'SSL_CERT_PATH'\n" );
+        exit(0);
+    }
+
+    ret = JS_BIN_fileRead( value, &g_binCert );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to read ssl cert(%s)\n", value );
+        exit(0);
+    }
+
+    value = JS_CFG_getValue( g_pEnvList, "SSL_PRIKEY_PATH" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "You have to set 'SSL_PRIKEY_PATH'\n" );
+        exit(0);
+    }
+
+    ret = JS_BIN_fileRead( value, &g_binPri );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to read ssl private key(%s)\n", value );
+        exit(0);
+    }
+
+    value = JS_CFG_getValue( g_pEnvList, "PKCS11_LIB_PATH" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "You have to set 'PKCS11_LIB_PATH'\n" );
+        exit(0);
+    }
+
+    JS_PKCS11_LoadLibrary( &g_pP11CTX, value );
+    JS_SSL_initServer( &g_pSSLCTX );
+    JS_SSL_setCertAndPriKey( g_pSSLCTX, &g_binPri, &g_binCert );
+    JS_SSL_setClientCACert( g_pSSLCTX, &g_binCACert );
+
+    value = JS_CFG_getValue( g_pEnvList, "DB_PATH" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "You have to set 'DB_PATH'\n" );
+        exit(0);
+    }
+
+    g_pDBPath = JS_strdup( value );
 
     ret = loginHSM();
     if( ret != 0 )
