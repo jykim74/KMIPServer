@@ -43,3 +43,6 @@ win32 {
     LIBS += -L"C:\msys64\mingw32\lib" -lltdl -lsqlite3
 
 }
+
+DISTFILES += \
+    ../kms_srv.cfg
