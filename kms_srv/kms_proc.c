@@ -130,7 +130,6 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
     int ret = 0;
     BIN binVal = {0,0};
     BIN binPub = {0,0};
-    BIN binPub2 = {0,0};
 
     CK_OBJECT_HANDLE    sObjects[20];
     ret = findObjects( CKO_PUBLIC_KEY, pID, sObjects );
@@ -155,7 +154,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
 
         JS_PKI_setRSAKeyVal( &sRSAKeyVal, pN, pE, NULL, NULL, NULL, NULL, NULL, NULL );
 
-        JS_PKI_encodeRSAPublicKey( &sRSAKeyVal, &binPub, &binPub2 );
+        JS_PKI_encodeRSAPublicKey( &sRSAKeyVal, &binPub );
 
         JS_BIN_reset( &binExponet );
         JS_BIN_reset( &binModulus );
@@ -197,7 +196,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
     *ppPubKey = pPubKey;
 
  end :
-    JS_BIN_reset( &binPub2 );
+
 
     return ret;
 }
@@ -1289,6 +1288,11 @@ end :
     return ret;
 }
 
+int runGetAttributeList( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+{
+    return 0;
+}
+
 static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
 {
     int ret = 0;
@@ -2329,6 +2333,10 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_SIGNATURE_VERIFY )
     {
         ret = runVerify( db, pReqItem, pRspItem );
+    }
+    else if( pReqItem->operation == KMIP_OP_GET_ATTRIBUTE_LIST )
+    {
+        ret = runGetAttributeList( db, pReqItem, pRspItem );
     }
     else
     {
