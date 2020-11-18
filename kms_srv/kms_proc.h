@@ -17,6 +17,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
 int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
 int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
 int runGetAttributeList( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem);
+int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, const HashResponsePayload **ppRspPayload );
 
 int isAuthentication( const Authentication *pAuth );
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );

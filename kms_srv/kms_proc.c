@@ -1293,6 +1293,45 @@ int runGetAttributeList( sqlite3 *db, const RequestBatchItem *pReqItem, Response
     return 0;
 }
 
+int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    int nMech = 0;
+
+    CK_MECHANISM    stMech = {0};
+    CK_ULONG        uDigestLen = 64;
+    unsigned char   sDigest[64];
+    HashResponsePayload *pRspPayload = NULL;
+
+    ret = JS_KMS_setMechParam( pReqPayload->crypt_params, &nMech );
+    stMech.mechanism = nMech;
+
+    ret = JS_PKCS11_DigestInit( g_pP11CTX, &stMech );
+    if( ret != CKR_OK )
+    {
+        goto end;
+    }
+
+    ret = JS_PKCS11_Digest( g_pP11CTX, pReqPayload->data->value, pReqPayload->data->size, sDigest, &uDigestLen );
+    if( ret != CKR_OK )
+    {
+        goto end;
+    }
+
+    pRspPayload = (HashResponsePayload *)JS_calloc( 1, sizeof(HashResponsePayload));
+    pRspPayload->data = (ByteString *)JS_malloc(sizeof(ByteString));
+    pRspPayload->data->value = JS_malloc( uDigestLen );
+    memcpy( pRspPayload->data->value, sDigest, uDigestLen );
+    pRspPayload->data->size = uDigestLen;
+
+    *ppRspPayload = pRspPayload;
+
+end :
+
+
+    return ret;
+}
+
 static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
 {
     int ret = 0;
@@ -2337,6 +2376,18 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_GET_ATTRIBUTE_LIST )
     {
         ret = runGetAttributeList( db, pReqItem, pRspItem );
+    }
+    else if( pReqItem->operation == KMIP_OP_HASH )
+    {
+        ret = runHash( db, pReqItem->request_payload, &pRspItem->response_payload );
+        if( ret == JS_KMS_OK )
+        {
+            pRspItem->result_status = KMIP_STATUS_SUCCESS;
+        }
+        else
+        {
+            _setErrorResponse( ret, pRspItem );
+        }
     }
     else
     {
