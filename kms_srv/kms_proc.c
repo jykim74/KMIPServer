@@ -357,11 +357,10 @@ end :
     return ret;
 }
 
-int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem )
+int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binID = {0,0};
-    BIN binVal = {0,0};
 
     JDB_KMS sKMS;
     char    sSeq[32];
@@ -370,13 +369,10 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
 
-    GetRequestPayload *grp = (GetRequestPayload *)pReqItem->request_payload;
-    pRspItem->operation = pReqItem->operation;
-
-    memcpy( sSeq, grp->unique_identifier->value, grp->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
-    JS_BIN_set( &binID, grp->unique_identifier->value, grp->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
 
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
     if( ret < 1 )
@@ -460,29 +456,18 @@ int runGet( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pR
     gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
     memcpy( gsp->unique_identifier->value, binID.pVal, binID.nLen );
 
-    pRspItem->response_payload = gsp;
+    *ppRspPayload = gsp;
     ret = JS_KMS_OK;
 
 end :
-    if( ret == JS_KMS_OK )
-    {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-        JS_BIN_reset( &binVal );
-    }
-
     JS_DB_resetKMS( &sKMS );
     JS_BIN_reset( &binID );
     return ret;
 }
 
-int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateResponsePayload **ppRspPayload  )
 {
     int ret = 0;
-    CreateRequestPayload *crp = (CreateRequestPayload *)pReqItem->request_payload;
 
     CK_ATTRIBUTE        sTemplate[20];
     CK_ULONG            uCount = 0;
@@ -520,7 +505,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     sprintf( sID, "%d", nSeq );
 
 
-    if( crp->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
+    if( pReqPayload->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_SECRET;
         nKeyAlg = JS_PKI_KEY_TYPE_AES;
@@ -556,7 +541,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         sTemplate[uCount].ulValueLen = strlen( "KMS Label" );
         uCount++;
 
-        TemplateAttribute *ta = crp->template_attribute;
+        TemplateAttribute *ta = pReqPayload->template_attribute;
         for( int i = 0; i < ta->attribute_count; i++ )
         {
             if( ta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_ALGORITHM )
@@ -617,7 +602,6 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
 
     CreateResponsePayload   *pld = (CreateRequestPayload *)JS_calloc( 1, sizeof(CreateResponsePayload ) );
     pld->object_type = KMIP_OBJTYPE_SYMMETRIC_KEY;
-    pRspItem->operation = pReqItem->operation;
 
 
     if( ret == 0 )
@@ -625,7 +609,7 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         pld->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
         pld->unique_identifier->size = strlen( sID );
         pld->unique_identifier->value = JS_strdup( sID );
-        pRspItem->response_payload = pld;
+        *ppRspPayload = pld;
     }
 
     JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, nKeyAlg, sID, "SymKey" );
@@ -633,20 +617,11 @@ int runCreate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     ret = JS_KMS_OK;
 
 end :
-    if( ret == JS_KMS_OK )
-    {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-    }
-
     JS_DB_resetKMS( &sKMS );
     return 0;
 }
 
-int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runDestroy( sqlite3 *db, const DestroyRequestPayload *pReqPayload, DestroyResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binID = {0,0};
@@ -659,11 +634,9 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     memset( sSeq, 0x00, sizeof(sSeq));
     memset( &sKMS, 0x00, sizeof(sKMS));
 
-    DestroyRequestPayload *drp = (DestroyRequestPayload *)pReqItem->request_payload;
 
-
-    JS_BIN_set( &binID, drp->unique_identifier->value, drp->unique_identifier->size );
-    memcpy( sSeq, drp->unique_identifier->value, drp->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
 
     nSeq = atoi( sSeq );
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
@@ -692,8 +665,6 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
 
     ret = findObjects( uObjClass, &binID, sObjects );
 
-    pRspItem->operation = pReqItem->operation;
-
     if( ret <= 0 )
     {
         fprintf(stderr, "fail to find objects(%d)\n", ret );
@@ -718,26 +689,17 @@ int runDestroy( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     dsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
 
     memcpy( dsp->unique_identifier->value, binID.pVal, binID.nLen );
-    pRspItem->response_payload = dsp;
+    *ppRspPayload = dsp;
 
     ret = JS_KMS_OK;
     JS_DB_delKMS( db, atoi(sSeq));
 
 end :
-    if( ret == JS_KMS_OK )
-    {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-    }
-
     JS_BIN_reset( &binID );
     return ret;
 }
 
-int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runActivate( sqlite3 *db, const ActivateRequestPayload *pReqPayload, ActivateResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binID = {0,0};
@@ -748,13 +710,9 @@ int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     memset( sSeq, 0x00, sizeof(sSeq));
     memset( &sKMS, 0x00, sizeof(sKMS));
 
-    ActivateRequestPayload *arp = (ActivateRequestPayload *)pReqItem->request_payload;
 
-
-    JS_BIN_set( &binID, arp->unique_identifier->value, arp->unique_identifier->size );
-    memcpy( sSeq, arp->unique_identifier->value, arp->unique_identifier->size );
-
-    pRspItem->operation = pReqItem->operation;
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
 
     ret = JS_DB_getKMS( db, atoi(sSeq), &sKMS );
     if( ret != 1 )
@@ -780,27 +738,18 @@ int runActivate( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     asp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
 
     memcpy( asp->unique_identifier->value, binID.pVal, binID.nLen );
-    pRspItem->response_payload = asp;
+    *ppRspPayload = asp;
 
     ret = JS_KMS_OK;
 
 end :
-    if( ret == JS_KMS_OK )
-    {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-    }
-
     JS_BIN_reset( &binID );
     JS_DB_resetKMS( &sKMS );
 
     return ret;
 }
 
-int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runEncrypt( sqlite3 *db, const EncryptRequestPayload *pReqPayload, EncryptResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binIV = {0};
@@ -818,18 +767,9 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
 
-
-    EncryptRequestPayload *pERP = (EncryptRequestPayload *)pReqItem->request_payload;
-    if( pERP == NULL )
-    {
-        ret = JS_KMS_ERROR_NO_PAYLOAD;
-        goto end;
-    }
-
-    memcpy( sSeq, pERP->unique_identifier->value, pERP->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
-    pRspItem->operation = pReqItem->operation;
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
     if( ret < 1 )
     {
@@ -843,7 +783,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
-    JS_BIN_set( &binID, pERP->unique_identifier->value, pERP->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
     if( ret < 1 )
     {
@@ -851,7 +791,7 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
-    ret = JS_KMS_setMechParam( pERP->cryptographic_parameters, &nMech );
+    ret = JS_KMS_setMechParam( pReqPayload->cryptographic_parameters, &nMech );
     if( ret < 0 )
     {
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
@@ -859,22 +799,9 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     }
 
     stMech.mechanism = nMech;
-/*
-    if( pERP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
-            pERP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
-            pERP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
-    {
-        stMech.mechanism = CKM_AES_CBC_PAD;
-    }
-    else
-    {
-        fprintf( stderr, "need to work\n" );
-        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
-        goto end;
-    }
-*/
-    JS_BIN_set( &binPlain, pERP->data->value, pERP->data->size );
-    JS_BIN_set( &binIV, pERP->iv_counter_nonce->value, pERP->iv_counter_nonce->size );
+
+    JS_BIN_set( &binPlain, pReqPayload->data->value, pReqPayload->data->size );
+    JS_BIN_set( &binIV, pReqPayload->iv_counter_nonce->value, pReqPayload->iv_counter_nonce->size );
 
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
@@ -905,17 +832,11 @@ int runEncrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     pESP->unique_identifier->value = binID.pVal;
     pESP->unique_identifier->size = binID.nLen;
 
-    pRspItem->response_payload = pESP;
+    *ppRspPayload = pESP;
 
 end :
-    if( ret == JS_KMS_OK )
+    if( ret != JS_KMS_OK )
     {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-
         if( pEncData ) JS_free( pEncData );
         JS_BIN_reset( &binID );
     }
@@ -927,7 +848,7 @@ end :
     return ret;
 }
 
-int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runDecrypt( sqlite3 *db, const DecryptRequestPayload *pReqPayload, DecryptResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binIV = {0};
@@ -946,14 +867,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
 
-    DecryptRequestPayload *pDRP = (DecryptRequestPayload *)pReqItem->request_payload;
-    if( pDRP == NULL )
-    {
-        ret = JS_KMS_ERROR_NO_PAYLOAD;
-        goto end;
-    }
-
-    memcpy( sSeq, pDRP->unique_identifier->value, pDRP->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
@@ -969,9 +883,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
-    pRspItem->operation = pReqItem->operation;
-
-    JS_BIN_set( &binID, pDRP->unique_identifier->value, pDRP->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     ret = findObjects( CKO_SECRET_KEY, &binID, sObjects );
     if( ret < 1 )
     {
@@ -979,7 +891,7 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
         goto end;
     }
 
-    ret = JS_KMS_setMechParam( pDRP->cryptographic_parameters, &nMech );
+    ret = JS_KMS_setMechParam( pReqPayload->cryptographic_parameters, &nMech );
     if( ret < 0 )
     {
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
@@ -988,23 +900,8 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
 
     stMech.mechanism = nMech;
 
-    /*
-    if( pDRP->cryptographic_parameters->block_cipher_mode == KMIP_BLOCK_CBC &&
-            pDRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS5 &&
-            pDRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_AES )
-    {
-        stMech.mechanism = CKM_AES_CBC_PAD;
-    }
-    else
-    {
-        fprintf( stderr, "need to work\n" );
-        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
-        goto end;
-    }
-    */
-
-    JS_BIN_set( &binEncrypt, pDRP->data->value, pDRP->data->size );
-    JS_BIN_set( &binIV, pDRP->iv_counter_nonce->value, pDRP->iv_counter_nonce->size );
+    JS_BIN_set( &binEncrypt, pReqPayload->data->value, pReqPayload->data->size );
+    JS_BIN_set( &binIV, pReqPayload->iv_counter_nonce->value, pReqPayload->iv_counter_nonce->size );
 
     stMech.pParameter = binIV.pVal;
     stMech.ulParameterLen = binIV.nLen;
@@ -1035,17 +932,11 @@ int runDecrypt( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem
     pDSP->unique_identifier->value = binID.pVal;
     pDSP->unique_identifier->size = binID.nLen;
 
-    pRspItem->response_payload = pDSP;
+    *ppRspPayload = pDSP;
 
 end :
-    if( ret == JS_KMS_OK )
+    if( ret != JS_KMS_OK )
     {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-
         if( pDecData ) JS_free( pDecData );
         JS_BIN_reset( &binID );
     }
@@ -1057,7 +948,7 @@ end :
     return ret;
 }
 
-int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runSign( sqlite3 *db, const SignRequestPayload *pReqPayload, SignResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binID = {0};
@@ -1076,9 +967,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( &sSeq, 0x00, sizeof(sSeq));
 
-    SignRequestPayload *pSRP = (SignRequestPayload *)pReqItem->request_payload;
-
-    memcpy( sSeq, pSRP->unique_identifier->value, pSRP->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
@@ -1094,10 +983,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
         goto end;
     }
 
-
-    pRspItem->operation = pReqItem->operation;
-
-    JS_BIN_set( &binID, pSRP->unique_identifier->value, pSRP->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     ret = findObjects( CKO_PRIVATE_KEY, &binID, sObjects );
     if( ret < 1 )
     {
@@ -1105,7 +991,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
         goto end;
     }
 
-    ret = JS_KMS_setMechParam( pSRP->cryptographic_parameters, &nMech );
+    ret = JS_KMS_setMechParam( pReqPayload->cryptographic_parameters, &nMech );
     if( ret < 0 )
     {
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
@@ -1114,22 +1000,7 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
 
     stMech.mechanism = nMech;
 
-    /*
-    if( pSRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
-            pSRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
-            pSRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
-    {
-        stMech.mechanism = CKM_SHA256_RSA_PKCS;
-    }
-    else
-    {
-        fprintf( stderr, "need to work\n" );
-        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
-        goto end;
-    }
-    */
-
-    JS_BIN_set( &binData, pSRP->data->value, pSRP->data->size );
+    JS_BIN_set( &binData, pReqPayload->data->value, pReqPayload->data->size );
 
     ret = JS_PKCS11_SignInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != CKR_OK )
@@ -1158,17 +1029,11 @@ int runSign( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *p
     pSSP->unique_identifier->value = binID.pVal;
     pSSP->unique_identifier->size = binID.nLen;
 
-    pRspItem->response_payload = pSSP;
+    *ppRspPayload = pSSP;
 
 end :
-    if( ret == JS_KMS_OK )
+    if( ret != JS_KMS_OK )
     {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-
         JS_BIN_reset( &binID );
     }
 
@@ -1176,7 +1041,7 @@ end :
     return ret;
 }
 
-int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runVerify( sqlite3 *db, const SignatureVerifyRequestPayload *pReqPayload, SignatureVerifyResponsePayload **ppRspPayload )
 {
     int ret = 0;
     BIN binID = {0};
@@ -1194,9 +1059,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( &sSeq, 0x00, sizeof(sSeq));
 
-    SignatureVerifyRequestPayload *pVRP = (SignatureVerifyRequestPayload *)pReqItem->request_payload;
-
-    memcpy( sSeq, pVRP->unique_identifier->value, pVRP->unique_identifier->size );
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
@@ -1212,9 +1075,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         goto end;
     }
 
-    pRspItem->operation = pReqItem->operation;
-
-    JS_BIN_set( &binID, pVRP->unique_identifier->value, pVRP->unique_identifier->size );
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     ret = findObjects( CKO_PUBLIC_KEY, &binID, sObjects );
     if( ret < 1 )
     {
@@ -1222,7 +1083,7 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
         goto end;
     }
 
-    ret = JS_KMS_setMechParam( pVRP->cryptographic_parameters, &nMech );
+    ret = JS_KMS_setMechParam( pReqPayload->cryptographic_parameters, &nMech );
     if( ret < 0 )
     {
         ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
@@ -1231,23 +1092,8 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
 
     stMech.mechanism = nMech;
 
-    /*
-    if( pVRP->cryptographic_parameters->hashing_algorithm == KMIP_HASH_SHA256 &&
-            pVRP->cryptographic_parameters->padding_method == KMIP_PAD_PKCS1v15 &&
-            pVRP->cryptographic_parameters->cryptographic_algorithm == KMIP_CRYPTOALG_RSA )
-    {
-        stMech.mechanism = CKM_SHA256_RSA_PKCS;
-    }
-    else
-    {
-        fprintf( stderr, "need to work\n" );
-        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
-        goto end;
-    }
-    */
-
-    JS_BIN_set( &binData, pVRP->data->value, pVRP->data->size );
-    JS_BIN_set( &binSign, pVRP->signature_data->value, pVRP->signature_data->size );
+    JS_BIN_set( &binData, pReqPayload->data->value, pReqPayload->data->size );
+    JS_BIN_set( &binSign, pReqPayload->signature_data->value, pReqPayload->signature_data->size );
 
     ret = JS_PKCS11_VerifyInit( g_pP11CTX, &stMech, sObjects[0] );
     if( ret != CKR_OK )
@@ -1271,16 +1117,11 @@ int runVerify( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem 
     pVSP->unique_identifier->value = binID.pVal;
     pVSP->unique_identifier->size = binID.nLen;
 
-    pRspItem->response_payload = pVSP;
+    *ppRspPayload = pVSP;
 
 end :
-    if( ret == JS_KMS_OK )
+    if( ret != JS_KMS_OK )
     {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
         JS_BIN_reset( &binID );
     }
 
@@ -1288,7 +1129,7 @@ end :
     return ret;
 }
 
-int runGetAttributeList( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReqPayload, GetAttributeListResponsePayload **ppRspPayload )
 {
     return 0;
 }
@@ -1958,7 +1799,7 @@ static int registerSecretKey( const BIN *pID, const RegisterRequestPayload *pRRP
     return 0;
 }
 
-int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runRegister( sqlite3 *db, const RegisterRequestPayload *pReqPayload, RegisterResponsePayload **ppRspPayload )
 {
     int ret = 0;
     int nSeq = 0;
@@ -1969,10 +1810,6 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
 
     JDB_KMS sKMS;
     char    sInfo[128];
-
-    RegisterRequestPayload *pRRP = (RegisterRequestPayload *)pReqItem->request_payload;
-
-    pRspItem->operation = pReqItem->operation;
 
     memset( sSeq, 0x00, sizeof(sSeq));
     memset( &sKMS, 0x00, sizeof(sKMS));
@@ -1988,31 +1825,31 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     sprintf( sSeq, "%d", nSeq );
     JS_BIN_set( &binID, sSeq, strlen(sSeq));
 
-    if( pRRP->object_type == KMIP_OBJTYPE_CERTIFICATE )
+    if( pReqPayload->object_type == KMIP_OBJTYPE_CERTIFICATE )
     {
         nType = JS_KMS_OBJECT_TYPE_CERT;
         nKeyAlg = JS_PKI_KEY_TYPE_NONE;
         sprintf( sInfo, "%s", "Certificate" );
 
-        ret = registerCert( &binID, pRRP );
+        ret = registerCert( &binID, pReqPayload );
     }
-    else if( pRRP->object_type == KMIP_OBJTYPE_PRIVATE_KEY )
+    else if( pReqPayload->object_type == KMIP_OBJTYPE_PRIVATE_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_PRIKEY;
         sprintf( sInfo, "%s", "PrivateKey" );
-        ret = registerPriKey( &binID, pRRP, &nKeyAlg );
+        ret = registerPriKey( &binID, pReqPayload, &nKeyAlg );
     }
-    else if( pRRP->object_type == KMIP_OBJTYPE_PUBLIC_KEY )
+    else if( pReqPayload->object_type == KMIP_OBJTYPE_PUBLIC_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_PUBKEY;
         sprintf( sInfo, "%s", "PublicKey" );
-        ret = registerPubKey( &binID, pRRP, &nKeyAlg );
+        ret = registerPubKey( &binID, pReqPayload, &nKeyAlg );
     }
-    else if( pRRP->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
+    else if( pReqPayload->object_type == KMIP_OBJTYPE_SYMMETRIC_KEY )
     {
         nType = JS_KMS_OBJECT_TYPE_SECRET;
         sprintf( sInfo, "%s", "SecretKey" );
-        ret = registerSecretKey( &binID, pRRP, &nKeyAlg );
+        ret = registerSecretKey( &binID, pReqPayload, &nKeyAlg );
     }
     else
     {
@@ -2027,20 +1864,14 @@ int runRegister( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchIte
     pRSP->unique_identifier->value = binID.pVal;
     pRSP->unique_identifier->size = binID.nLen;
 
-    pRspItem->response_payload = pRSP;
+    *ppRspPayload = pRSP;
 
     JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, nKeyAlg, sSeq, sInfo );
     JS_DB_addKMS( db, &sKMS );
 
 end :
-    if( ret == JS_KMS_OK )
+    if( ret != JS_KMS_OK )
     {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-
         JS_BIN_reset( &binID );
     }
 
@@ -2048,7 +1879,7 @@ end :
     return ret;
 }
 
-int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem)
+int runCreateKeyPair( sqlite3 *db, const CreateKeyPairRequestPayload *pReqPayload, CreateKeyPairResponsePayload **ppRspPayload )
 {
     int ret = 0;
 
@@ -2091,19 +1922,15 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 
     time_t now_t = time(NULL);
 
-    CreateKeyPairRequestPayload *crp = (CreateKeyPairRequestPayload *)pReqItem->request_payload;
-
-    pRspItem->operation = pReqItem->operation;
-
     memset( &stMech, 0x00, sizeof(stMech));
     memset( sPriSeq, 0x00, sizeof(sPriSeq));
     memset( sPubSeq, 0x00, sizeof(sPubSeq));
     memset( &sPriKMS, 0x00, sizeof(sPriKMS));
     memset( &sPubKMS, 0x00, sizeof(sPubKMS));
 
-    if( crp->common_template_attribute )
+    if( pReqPayload->common_template_attribute )
     {
-        TemplateAttribute *tca = crp->common_template_attribute;
+        TemplateAttribute *tca = pReqPayload->common_template_attribute;
 
         for( int i = 0; i < tca->attribute_count; i++ )
         {
@@ -2131,9 +1958,9 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
         }
     }
 
-    if( crp->public_key_template_attribute )
+    if( pReqPayload->public_key_template_attribute )
     {
-        TemplateAttribute *pua = crp->public_key_template_attribute;
+        TemplateAttribute *pua = pReqPayload->public_key_template_attribute;
 
         for( int i = 0; i < pua->attribute_count; i++ )
         {
@@ -2144,9 +1971,9 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
         }
     }
 
-    if( crp->private_key_template_attribute )
+    if( pReqPayload->private_key_template_attribute )
     {
-        TemplateAttribute *pra = crp->private_key_template_attribute;
+        TemplateAttribute *pra = pReqPayload->private_key_template_attribute;
 
         for( int i = 0; i < pra->attribute_count; i++ )
         {
@@ -2300,7 +2127,7 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     csp->private_key_unique_identifier->size = strlen( sPriSeq );
     csp->private_key_unique_identifier->value = JS_strdup( sPriSeq );
 
-    pRspItem->response_payload = csp;
+    *ppRspPayload = csp;
 
     JS_DB_setKMS( &sPriKMS, nPriSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PRIKEY, nKeyAlg, sPriSeq, "PrivateKey" );
     JS_DB_setKMS( &sPubKMS, nPubSeq, now_t, 0, JS_KMS_OBJECT_TYPE_PUBKEY, nKeyAlg, sPubSeq, "PublicKey" );
@@ -2309,14 +2136,6 @@ int runGenKeyPair( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     JS_DB_addKMS( db, &sPubKMS );
 
 end :
-    if( ret == JS_KMS_OK )
-    {
-        pRspItem->result_status = KMIP_STATUS_SUCCESS;
-    }
-    else
-    {
-        _setErrorResponse( ret, pRspItem );
-    }
 
     JS_BIN_reset( &binECParam );
     JS_BIN_reset( &binExponent );
@@ -2335,64 +2154,65 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
 
     if( pReqItem->operation == KMIP_OP_GET )
     {
-        ret = runGet( db, pReqItem, pRspItem );
+        ret = runGet( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_CREATE )
     {
-        ret = runCreate( db, pReqItem, pRspItem );
+        ret = runCreate( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_DESTROY )
     {
-        ret = runDestroy( db, pReqItem, pRspItem );
+        ret = runDestroy( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_ACTIVATE )
     {
-        ret = runActivate( db, pReqItem, pRspItem );
+        ret = runActivate( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_SIGN )
     {
-        ret = runSign( db, pReqItem, pRspItem );
+        ret = runSign( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_DECRYPT )
     {
-        ret = runDecrypt( db, pReqItem, pRspItem );
+        ret = runDecrypt( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_ENCRYPT )
     {
-        ret = runEncrypt( db, pReqItem, pRspItem );
+        ret = runEncrypt( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_REGISTER )
     {
-        ret = runRegister( db, pReqItem, pRspItem );
+        ret = runRegister( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_CREATE_KEY_PAIR )
     {
-        ret = runGenKeyPair( db, pReqItem, pRspItem );
+        ret = runCreateKeyPair( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_SIGNATURE_VERIFY )
     {
-        ret = runVerify( db, pReqItem, pRspItem );
+        ret = runVerify( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_GET_ATTRIBUTE_LIST )
     {
-        ret = runGetAttributeList( db, pReqItem, pRspItem );
+        ret = runGetAttributeList( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_HASH )
     {
         ret = runHash( db, pReqItem->request_payload, &pRspItem->response_payload );
-        if( ret == JS_KMS_OK )
-        {
-            pRspItem->result_status = KMIP_STATUS_SUCCESS;
-        }
-        else
-        {
-            _setErrorResponse( ret, pRspItem );
-        }
     }
     else
     {
         fprintf( stderr, "not support operation(%d)\n", pReqItem->operation );
         return -1;
+    }
+
+    if( ret == JS_KMS_OK )
+    {
+        pRspItem->result_status = KMIP_STATUS_SUCCESS;
+    }
+    else
+    {
+        _setErrorResponse( ret, pRspItem );
     }
 
     return ret;
