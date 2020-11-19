@@ -1201,6 +1201,11 @@ end :
     return ret;
 }
 
+int runGetAttributes( sqlite3 *db, const GetAttributesRequestPayload *pReqPayload, GetAttributesResponsePayload **ppRspPayload )
+{
+    return 0;
+}
+
 int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePayload **ppRspPayload )
 {
     int ret = 0;
@@ -2315,6 +2320,10 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_GET_ATTRIBUTE_LIST )
     {
         ret = runGetAttributeList( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_GET_ATTRIBUTES )
+    {
+        ret = runGetAttributes( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else if( pReqItem->operation == KMIP_OP_HASH )
     {
