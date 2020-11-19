@@ -1173,6 +1173,59 @@ end :
     return ret;
 }
 
+int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, const RNGRetrieveResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    int nDataLen = 0;
+    RNGRetrieveResponsePayload  *pRspPayload = NULL;
+
+    nDataLen = pReqPayload->data_length;
+    unsigned char *pRand = NULL;
+
+    pRand = (unsigned char *)JS_calloc( 1, nDataLen );
+
+    ret = JS_PKCS11_GenerateRandom( g_pP11CTX, pRand, nDataLen );
+    if( ret != CKR_OK )
+    {
+        goto end;
+    }
+
+    pRspPayload = (RNGRetrieveResponsePayload *)JS_calloc( 1, sizeof(RNGRetrieveResponsePayload));
+    pRspPayload->data = (ByteString *)JS_malloc(sizeof(ByteString));
+    pRspPayload->data->value = JS_malloc( nDataLen );
+    memcpy( pRspPayload->data->value, pRand, nDataLen );
+    pRspPayload->data->size = nDataLen;
+
+    *ppRspPayload = pRspPayload;
+
+end :
+    if( pRand ) JS_free( pRand );
+
+    return ret;
+}
+
+int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, const RNGSeedResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    RNGSeedResponsePayload  *pRspPayload = NULL;
+
+    ret = JS_PKCS11_SeedRandom( g_pP11CTX, pReqPayload->data->value, pReqPayload->data->size );
+    if( ret != 0 )
+    {
+        goto end;
+    }
+
+    pRspPayload = (RNGSeedResponsePayload *)JS_calloc( 1, sizeof(RNGSeedResponsePayload));
+    pRspPayload->data_length = pReqPayload->data->size;
+
+    *ppRspPayload = pRspPayload;
+
+end :
+
+    return ret;
+}
+
+
 static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
 {
     int ret = 0;
@@ -2199,6 +2252,14 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_HASH )
     {
         ret = runHash( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_RNG_RETRIEVE )
+    {
+        ret = runRNGRetrieve( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_RNG_SEED )
+    {
+        ret = runRNGSeed( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else
     {

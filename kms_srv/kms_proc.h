@@ -18,6 +18,8 @@ int runRegister( sqlite3 *db, const RegisterRequestPayload *pReqPayload, Registe
 int runCreateKeyPair( sqlite3 *db, const CreateKeyPairRequestPayload *pReqPayload, CreateKeyPairResponsePayload **ppRspPayload );
 int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReqPayload, GetAttributeListResponsePayload **ppRspPayload );
 int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, const HashResponsePayload **ppRspPayload );
+int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, const RNGRetrieveResponsePayload **ppRspPayload );
+int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, const RNGSeedResponsePayload **ppRspPayload );
 
 int isAuthentication( const Authentication *pAuth );
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );
