@@ -1131,7 +1131,74 @@ end :
 
 int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReqPayload, GetAttributeListResponsePayload **ppRspPayload )
 {
-    return 0;
+    int ret = 0;
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    char *nameList[8] = { "Cryptographic Length", "Cryptographic Algorithm",
+                           "Object Type", "Unique Identifier",
+                           "State", "Initial Date",
+                           "Operation PolicyName", "Cryptographic Usage Mask" };
+
+    int nSeq = -1;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+
+    TextString  *name = NULL;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+
+    if( pReqPayload->unique_identifier )
+    {
+        memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        nSeq = atoi( sSeq );
+    }
+
+    /*
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+    */
+
+    name = (TextString *)JS_calloc( 8, sizeof(TextString) );
+    for( int i = 0; i < 8; i++ )
+    {
+        int len = strlen( nameList[i] );
+        name[i].value = (char *)JS_calloc( 1, len + 1 );
+        memcpy( name[i].value, nameList[i], len );
+        name[i].size = len;
+    }
+
+    GetAttributeListResponsePayload *garp = (GetAttributeListResponsePayload *)JS_calloc(1, sizeof(GetAttributeListResponsePayload));
+    if( pReqPayload->unique_identifier )
+    {
+        garp->unique_identifier = (TextString *)JS_calloc(1, sizeof(TextString));
+        garp->unique_identifier->value = JS_calloc( 1, pReqPayload->unique_identifier->size + 1 );
+        memcpy( garp->unique_identifier->value, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        garp->unique_identifier->size = pReqPayload->unique_identifier->size;
+    }
+    else
+    {
+        char *pPlaceholderID = "1";
+
+        garp->unique_identifier = (TextString *)JS_calloc(1, sizeof(TextString));
+        garp->unique_identifier->value = JS_calloc( 1, strlen(pPlaceholderID) );
+        memcpy( garp->unique_identifier->value, pPlaceholderID, strlen(pPlaceholderID) );
+        garp->unique_identifier->size = strlen( pPlaceholderID );
+    }
+
+    garp->attribute_name_count = 8;
+    garp->attribute_names = name;
+
+    *ppRspPayload = garp;
+
+end :
+
+    return ret;
 }
 
 int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePayload **ppRspPayload )

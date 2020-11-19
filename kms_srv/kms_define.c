@@ -13,6 +13,8 @@ static JNumVal      sErrList[] = {
     { JS_KMS_ERROR_NOT_ACTIVATE, "not activate" }
 };
 
+
+
 const char *getErrorMsg( int nNum )
 {
     int nCount = sizeof( sErrList ) / sizeof(sErrList[0]);

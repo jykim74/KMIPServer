@@ -6,12 +6,14 @@ CONFIG -= qt
 SOURCES += \
         kms_define.c \
         kms_proc.c \
-        kms_srv.c
+        kms_srv.c \
+        kms_util.c
 
 HEADERS += \
     kms_define.h \
     kms_proc.h \
-    kms_srv.h
+    kms_srv.h \
+    kms_util.h
 
 
 INCLUDEPATH += "../../PKILib"
