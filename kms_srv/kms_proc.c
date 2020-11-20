@@ -381,7 +381,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         goto end;
     }
 
-    if( sKMS.nStatus == 0 )
+    if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
@@ -478,7 +478,7 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
     int             *pnLen = NULL;
     int             *pnMask = NULL;
     long             uLen = 0;
-    int             nType = 0;
+    int             nType = KMIP_STATE_PRE_ACTIVE;
     int             nKeyAlg = 0;
 
     CK_BBOOL bTrue = CK_TRUE;
@@ -486,9 +486,12 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
     int             nSeq = -1;
     char            sID[16];
     JDB_KMS         sKMS;
+    JDB_KMSAttrib   sKMSAttrib;
+    char            sValue[32];
 
     memset( sID, 0x00, sizeof(sID));
     memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sKMSAttrib, 0x00, sizeof(sKMSAttrib));
     memset( &sMech, 0x00, sizeof(sMech));
 
     nSeq = JS_DB_getSeq( db, "TB_KMS" );
@@ -552,6 +555,11 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
                 {
                     sMech.mechanism = JS_PKCS11_GetCKMType( "CKM_AES_KEY_GEN" );
                 }
+
+                JS_DB_resetKMSAttrib( &sKMSAttrib );
+                sprintf( sValue, "%d", *pnAlg );
+                JS_DB_setKMSAttrib( &sKMSAttrib, nSeq, KMIP_ATTR_CRYPTOGRAPHIC_ALGORITHM, sValue );
+                JS_DB_addKMSAttrib( db, &sKMSAttrib );
             }
             else if( ta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_LENGTH )
             {
@@ -564,6 +572,11 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
                 sTemplate[uCount].pValue = &uLen;
                 sTemplate[uCount].ulValueLen = sizeof(uLen);
                 uCount++;
+
+                JS_DB_resetKMSAttrib( &sKMSAttrib );
+                sprintf( sValue, "%d", *pnLen );
+                JS_DB_setKMSAttrib( &sKMSAttrib, nSeq, KMIP_ATTR_CRYPTOGRAPHIC_LENGTH, sValue );
+                JS_DB_addKMSAttrib( db, &sKMSAttrib );
             }
             else if( ta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK )
             {
@@ -584,6 +597,11 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
                     sTemplate[uCount].ulValueLen = sizeof(CK_BBOOL);
                     uCount++;
                 }
+
+                JS_DB_resetKMSAttrib( &sKMSAttrib );
+                sprintf( sValue, "%d", *pnMask );
+                JS_DB_setKMSAttrib( &sKMSAttrib, nSeq, KMIP_ATTR_CRYPTOGRAPHIC_USAGE_MASK, sValue );
+                JS_DB_addKMSAttrib( db, &sKMSAttrib );
             }
         }
 
@@ -613,7 +631,12 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
     }
 
     JS_DB_setKMS( &sKMS, nSeq, time(NULL), 0, nType, nKeyAlg, sID, "SymKey" );
+
     JS_DB_addKMS( db, &sKMS );
+    JS_DB_resetKMSAttrib( &sKMSAttrib );
+    JS_DB_setKMSAttrib( &sKMSAttrib, nSeq, KMIP_ATTR_OPERATION_POLICY_NAME, "default" );
+    JS_DB_addKMSAttrib( db, &sKMSAttrib );
+
     ret = JS_KMS_OK;
 
 end :
@@ -721,7 +744,7 @@ int runActivate( sqlite3 *db, const ActivateRequestPayload *pReqPayload, Activat
         goto end;
     }
 
-    sKMS.nStatus = 1;
+    sKMS.nState = 1;
 
     ret = JS_DB_modKMS( db, atoi(sSeq), &sKMS );
     if( ret != 0 )
@@ -777,7 +800,7 @@ int runEncrypt( sqlite3 *db, const EncryptRequestPayload *pReqPayload, EncryptRe
         goto end;
     }
 
-    if( sKMS.nStatus == 0 )
+    if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
@@ -877,7 +900,7 @@ int runDecrypt( sqlite3 *db, const DecryptRequestPayload *pReqPayload, DecryptRe
         goto end;
     }
 
-    if( sKMS.nStatus == 0 )
+    if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
@@ -977,7 +1000,7 @@ int runSign( sqlite3 *db, const SignRequestPayload *pReqPayload, SignResponsePay
         goto end;
     }
 
-    if( sKMS.nStatus == 0 )
+    if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
@@ -1069,7 +1092,7 @@ int runVerify( sqlite3 *db, const SignatureVerifyRequestPayload *pReqPayload, Si
         goto end;
     }
 
-    if( sKMS.nStatus == 0 )
+    if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
@@ -1134,15 +1157,17 @@ int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReq
     int ret = 0;
     CK_OBJECT_HANDLE    sObjects[20];
 
-    char *nameList[8] = { "Cryptographic Length", "Cryptographic Algorithm",
-                           "Object Type", "Unique Identifier",
-                           "State", "Initial Date",
-                           "Operation PolicyName", "Cryptographic Usage Mask" };
+    char *nameList[4] = { "Object Type", "Unique Identifier", "State", "Initial Date" };
 
+    int i = 0;
     int nSeq = -1;
     char sSeq[64];
 
     JDB_KMS sKMS;
+    JDB_KMSAttribList   *pKMSAttribList = NULL;
+    JDB_KMSAttribList   *pCurList = NULL;
+
+    int nAttribCnt = 0;
 
     TextString  *name = NULL;
 
@@ -1155,22 +1180,39 @@ int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReq
         nSeq = atoi( sSeq );
     }
 
-    /*
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
     if( ret < 1 )
     {
         ret = JS_KMS_ERROR_NO_OBJECT;
         goto end;
     }
-    */
 
-    name = (TextString *)JS_calloc( 8, sizeof(TextString) );
-    for( int i = 0; i < 8; i++ )
+    ret = JS_DB_getKMSAttribList( db, nSeq, &pKMSAttribList );
+    if( ret > 0 )
+    {
+        nAttribCnt = JS_DB_countKMSAttribList( pKMSAttribList );
+    }
+
+    name = (TextString *)JS_calloc( 4 + nAttribCnt, sizeof(TextString) );
+    for( i = 0; i < 4; i++ )
     {
         int len = strlen( nameList[i] );
         name[i].value = (char *)JS_calloc( 1, len + 1 );
         memcpy( name[i].value, nameList[i], len );
         name[i].size = len;
+    }
+
+    pCurList = pKMSAttribList;
+    while( pCurList )
+    {
+        char *pName = JS_KMS_attributeName( pCurList->sKMSAttrib.nType );
+        int len = strlen( pName );
+        name[i].value = (char *)JS_calloc( 1, len + 1 );
+        memcpy( name[i].value, pName, len );
+        name[i].size = len;
+        i++;
+
+        pCurList = pCurList->pNext;
     }
 
     GetAttributeListResponsePayload *garp = (GetAttributeListResponsePayload *)JS_calloc(1, sizeof(GetAttributeListResponsePayload));
@@ -1191,12 +1233,13 @@ int runGetAttributeList( sqlite3 *db, const GetAttributeListRequestPayload *pReq
         garp->unique_identifier->size = strlen( pPlaceholderID );
     }
 
-    garp->attribute_name_count = 8;
+    garp->attribute_name_count = i;
     garp->attribute_names = name;
 
     *ppRspPayload = garp;
 
 end :
+    if( pKMSAttribList ) JS_DB_resetKMSAttribList( &pKMSAttribList );
 
     return ret;
 }
