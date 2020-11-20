@@ -11,6 +11,8 @@
 #include "js_pki.h"
 #include "js_pki_tools.h"
 
+#include "kms_util.h"
+
 extern JP11_CTX    *g_pP11CTX;
 
 
@@ -1246,7 +1248,86 @@ end :
 
 int runGetAttributes( sqlite3 *db, const GetAttributesRequestPayload *pReqPayload, GetAttributesResponsePayload **ppRspPayload )
 {
-    return 0;
+    int ret = 0;
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    int i = 0;
+    int nSeq = -1;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+    JDB_KMSAttribList   *pKMSAttribList = NULL;
+    JDB_KMSAttribList   *pCurList = NULL;
+
+    int nAttribCnt = 0;
+
+    Attribute  *attrs = NULL;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+
+    if( pReqPayload->unique_identifier )
+    {
+        memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        nSeq = atoi( sSeq );
+    }
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    ret = JS_DB_getKMSAttribList( db, nSeq, &pKMSAttribList );
+    if( ret > 0 )
+    {
+        nAttribCnt = JS_DB_countKMSAttribList( pKMSAttribList );
+    }
+
+    attrs = (Attribute *)JS_calloc( 4 + nAttribCnt, sizeof(Attribute) );
+
+    getKMIPAttributeNum( KMIP_ATTR_OBJECT_TYPE, sKMS.nType, &attrs[i++] );
+    getKMIPAttributeString( KMIP_ATTR_UNIQUE_IDENTIFIER, sSeq, &attrs[i++] );
+    getKMIPAttributeNum( KMIP_ATTR_STATE, sKMS.nState, &attrs[i++] );
+    getKMIPAttributeNum( KMIP_ATTR_INITIAL_DATE, sKMS.nRegTime, &attrs[i++]);
+
+    pCurList = pKMSAttribList;
+    while( pCurList )
+    {
+        getKMIPAttribute( &pCurList->sKMSAttrib, &attrs[i] );
+        i++;
+
+        pCurList = pCurList->pNext;
+    }
+
+    GetAttributesResponsePayload *garp = (GetAttributesResponsePayload *)JS_calloc(1, sizeof(GetAttributesResponsePayload));
+    if( pReqPayload->unique_identifier )
+    {
+        garp->unique_identifier = (TextString *)JS_calloc(1, sizeof(TextString));
+        garp->unique_identifier->value = JS_calloc( 1, pReqPayload->unique_identifier->size + 1 );
+        memcpy( garp->unique_identifier->value, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        garp->unique_identifier->size = pReqPayload->unique_identifier->size;
+    }
+    else
+    {
+        char *pPlaceholderID = "1";
+
+        garp->unique_identifier = (TextString *)JS_calloc(1, sizeof(TextString));
+        garp->unique_identifier->value = JS_calloc( 1, strlen(pPlaceholderID) );
+        memcpy( garp->unique_identifier->value, pPlaceholderID, strlen(pPlaceholderID) );
+        garp->unique_identifier->size = strlen( pPlaceholderID );
+    }
+
+    garp->attribute_count = i;
+    garp->attributes = attrs;
+
+    *ppRspPayload = garp;
+
+end :
+    if( pKMSAttribList ) JS_DB_resetKMSAttribList( &pKMSAttribList );
+
+    return ret;
 }
 
 int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePayload **ppRspPayload )
