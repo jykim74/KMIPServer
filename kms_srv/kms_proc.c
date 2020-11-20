@@ -1474,7 +1474,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP, i
             sTemplate[uCount].ulValueLen = pname->value->size;
             uCount++;
         }
-        else if( pta->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+        else if( pta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_DOMAIN_PARAMETERS )
         {
             enum recommended_curve *curve = pta->attributes[i].value;
 
@@ -1716,7 +1716,7 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP, i
             sTemplate[uCount].ulValueLen = pname->value->size;
             uCount++;
         }
-        else if( pta->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+        else if( pta->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_DOMAIN_PARAMETERS )
         {
             enum recommended_curve *curve = pta->attributes[i].value;
 
@@ -2074,7 +2074,7 @@ int runCreateKeyPair( sqlite3 *db, const CreateKeyPairRequestPayload *pReqPayloa
                 int32 *length = tca->attributes[i].value;
                 nLength = *length;
             }
-            else if( tca->attributes[i].type == KMIP_ATTR_RECOMMENDED_CURVE )
+            else if( tca->attributes[i].type == KMIP_ATTR_CRYPTOGRAPHIC_DOMAIN_PARAMETERS )
             {
                 enum recommended_curve *curve;
                 curve = tca->attributes[i].value;
