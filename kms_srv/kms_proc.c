@@ -1326,6 +1326,188 @@ int runGetAttributes( sqlite3 *db, const GetAttributesRequestPayload *pReqPayloa
 
 end :
     if( pKMSAttribList ) JS_DB_resetKMSAttribList( &pKMSAttribList );
+    JS_DB_resetKMS( &sKMS );
+
+    return ret;
+}
+
+int runAddAttribute( sqlite3 *db, const AddAttributeRequestPayload *pReqPayload, AddAttributeResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    int i = 0;
+    int nSeq = -1;
+    int nType = -1;
+    char *pValue = NULL;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+    JDB_KMSAttrib sKMSAttrib;
+
+
+    Attribute  *attrs = NULL;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMSAttrib, 0x00, sizeof(sKMSAttrib));
+
+    if( pReqPayload->unique_identifier )
+    {
+        memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        nSeq = atoi( sSeq );
+    }
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    kmip_get_attribute_value( pReqPayload->attribute, &nType, &pValue );
+
+    sKMSAttrib.nNum = nSeq;
+    sKMSAttrib.nType = nType;
+    sKMSAttrib.pValue = pValue;
+
+    ret = JS_DB_addKMSAttrib( db, &sKMSAttrib );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    AddAttributeResponsePayload *aarp = (AddAttributeResponsePayload *)JS_calloc( 1, sizeof(AddAttributeResponsePayload));
+    aarp->unique_identifier = kmip_deep_copy_text_string( pReqPayload->unique_identifier );
+    aarp->attribute = kmip_deep_copy_attribute( pReqPayload->attribute );
+
+    *ppRspPayload = aarp;
+
+end :
+    JS_DB_resetKMS( &sKMS );
+    JS_DB_resetKMSAttrib( &sKMSAttrib );
+
+    return ret;
+}
+
+int runModifyAttribute( sqlite3 *db, const ModifyAttributeRequestPayload *pReqPayload, ModifyAttributeResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    int i = 0;
+    int nSeq = -1;
+    int nType = -1;
+    char *pValue = NULL;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+    JDB_KMSAttrib sKMSAttrib;
+
+
+    Attribute  *attrs = NULL;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMSAttrib, 0x00, sizeof(sKMSAttrib));
+
+    if( pReqPayload->unique_identifier )
+    {
+        memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        nSeq = atoi( sSeq );
+    }
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    kmip_get_attribute_value( pReqPayload->attribute, &nType, &pValue );
+
+    sKMSAttrib.nNum = nSeq;
+    sKMSAttrib.nType = nType;
+    sKMSAttrib.pValue = pValue;
+
+    ret = JS_DB_delKMSAttrib( db, nSeq, nType );
+
+    ret = JS_DB_addKMSAttrib( db, &sKMSAttrib );
+    if( ret != 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    ModifyAttributeResponsePayload *marp = (ModifyAttributeResponsePayload *)JS_calloc( 1, sizeof(ModifyAttributeResponsePayload));
+    marp->unique_identifier = kmip_deep_copy_text_string( pReqPayload->unique_identifier );
+    marp->attribute = kmip_deep_copy_attribute( pReqPayload->attribute );
+
+    *ppRspPayload = marp;
+
+end :
+    JS_DB_resetKMS( &sKMS );
+    JS_DB_resetKMSAttrib( &sKMSAttrib );
+
+    return ret;
+}
+
+int runDeleteAttribute( sqlite3 *db, const DeleteAttributeRequestPayload *pReqPayload, DeleteAttributeResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    int i = 0;
+    int nSeq = -1;
+    int nType = -1;
+    char *pValue = NULL;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+    JDB_KMSAttrib sKMSAttrib;
+
+
+    Attribute  *attr = NULL;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+    memset( &sKMSAttrib, 0x00, sizeof(sKMSAttrib));
+
+    if( pReqPayload->unique_identifier )
+    {
+        memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+        nSeq = atoi( sSeq );
+    }
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    nType = JS_KMS_attributeType( pReqPayload->attribute_name->value );
+
+    ret = JS_DB_getKMSAttrib( db, nSeq, nType, &sKMSAttrib );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    attr = kmip_get_attribute( nType, sKMSAttrib.pValue );
+    ret = JS_DB_delKMSAttrib( db, nSeq, nType );
+
+    DeleteAttributeResponsePayload *darp = (DeleteAttributeResponsePayload *)JS_calloc( 1, sizeof(DeleteAttributeResponsePayload));
+    darp->unique_identifier = kmip_deep_copy_text_string( pReqPayload->unique_identifier );
+    darp->attribute = kmip_deep_copy_attribute( attr );
+
+    *ppRspPayload = darp;
+
+end :
+    JS_DB_resetKMS( &sKMS );
+    JS_DB_resetKMSAttrib( &sKMSAttrib );
 
     return ret;
 }
@@ -2449,6 +2631,18 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     {
         ret = runGetAttributes( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
+    else if( pReqItem->operation == KMIP_OP_ADD_ATTRIBUTE )
+    {
+        ret = runAddAttribute( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_MODIFY_ATTRIBUTE )
+    {
+        ret = runModifyAttribute( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_DELETE_ATTRIBUTE )
+    {
+        ret = runDeleteAttribute( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
     else if( pReqItem->operation == KMIP_OP_HASH )
     {
         ret = runHash( db, pReqItem->request_payload, &pRspItem->response_payload );
@@ -2554,7 +2748,7 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
     size_t buffer_block_size = 1024 * 2;
     size_t buffer_total_size = buffer_blocks * buffer_block_size;
 
-    uint8 * encoding = ctx.calloc_func( ctx.state, buffer_blocks, buffer_block_size);
+    uint8 * encoding = ctx.calloc_func( buffer_blocks, buffer_block_size);
     if( encoding == NULL )
     {
         ret = -1;
