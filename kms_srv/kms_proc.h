@@ -21,9 +21,12 @@ int runGetAttributes( sqlite3 *db, const GetAttributesRequestPayload *pReqPayloa
 int runAddAttribute( sqlite3 *db, const AddAttributeRequestPayload *pReqPayload, AddAttributeResponsePayload **ppRspPayload );
 int runModifyAttribute( sqlite3 *db, const ModifyAttributeRequestPayload *pReqPayload, ModifyAttributeResponsePayload **ppRspPayload );
 int runDeleteAttribute( sqlite3 *db, const DeleteAttributeRequestPayload *pReqPayload, DeleteAttributeResponsePayload **ppRspPayload );
-int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, const HashResponsePayload **ppRspPayload );
-int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, const RNGRetrieveResponsePayload **ppRspPayload );
-int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, const RNGSeedResponsePayload **ppRspPayload );
+int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePayload **ppRspPayload );
+int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, RNGRetrieveResponsePayload **ppRspPayload );
+int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, RNGSeedResponsePayload **ppRspPayload );
+int runDiscoverVersions( sqlite3 *db, const DiscoverVersionsRequestPayload *pReqPayload, DiscoverVersionsResponsePayload **ppRspPayload );
+int runMAC( sqlite3 *db, const MACRequestPayload *pReqPayload, MACResponsePayload **ppRspPayload );
+int runMACVerify( sqlite3 *db, const MACVerifyRequestPayload *pReqPayload, MACVerifyResponsePayload **ppRspPayload );
 
 int isAuthentication( const Authentication *pAuth );
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );

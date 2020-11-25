@@ -1522,7 +1522,7 @@ int runHash( sqlite3 *db, const HashRequestPayload *pReqPayload, HashResponsePay
     unsigned char   sDigest[64];
     HashResponsePayload *pRspPayload = NULL;
 
-    ret = JS_KMS_setMechParam( pReqPayload->crypt_params, &nMech );
+    ret = JS_KMS_setMechHashParam( pReqPayload->crypt_params, &nMech );
     stMech.mechanism = nMech;
 
     ret = JS_PKCS11_DigestInit( g_pP11CTX, &stMech );
@@ -1551,7 +1551,7 @@ end :
     return ret;
 }
 
-int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, const RNGRetrieveResponsePayload **ppRspPayload )
+int runRNGRetrieve( sqlite3 *db, const RNGRetrieveRequestPayload *pReqPayload, RNGRetrieveResponsePayload **ppRspPayload )
 {
     int ret = 0;
     int nDataLen = 0;
@@ -1582,7 +1582,7 @@ end :
     return ret;
 }
 
-int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, const RNGSeedResponsePayload **ppRspPayload )
+int runRNGSeed( sqlite3 *db, const RNGSeedRequestPayload *pReqPayload, RNGSeedResponsePayload **ppRspPayload )
 {
     int ret = 0;
     RNGSeedResponsePayload  *pRspPayload = NULL;
@@ -1603,6 +1603,212 @@ end :
     return ret;
 }
 
+int runDiscoverVersions( sqlite3 *db, const DiscoverVersionsRequestPayload *pReqPayload, DiscoverVersionsResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+
+    ProtocolVersion *versions = NULL;
+
+    for( int i = 0; i < pReqPayload->version_count; i++ )
+    {
+        kmip_print_protocol_version( 0, &pReqPayload->versions[i] );
+    }
+
+    versions = (ProtocolVersion *)JS_calloc( 2, sizeof(ProtocolVersion));
+
+    kmip_init_protocol_version( &versions[0], KMIP_1_4 );
+    kmip_init_protocol_version( &versions[1], KMIP_1_2 );
+
+    DiscoverVersionsResponsePayload *dvrp = (DiscoverVersionsResponsePayload *)JS_calloc( 1, sizeof(DiscoverVersionsResponsePayload));
+    dvrp->versions = versions;
+    dvrp->version_count = 2;
+
+    *ppRspPayload = dvrp;
+
+end :
+    return ret;
+}
+
+int runMAC( sqlite3 *db, const MACRequestPayload *pReqPayload, MACResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    BIN binID = {0};
+    BIN binSign = {0};
+    BIN binData = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+
+    CK_MECHANISM stMech = {0};
+    unsigned char sSign[1024];
+    long uSignLen = 0;
+    int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+    JDB_KMS sKMS;
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nState == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
+
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    ret = findObjects( CKO_PRIVATE_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    ret = JS_KMS_setMechHMACParam( pReqPayload->crypto_params, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    stMech.mechanism = nMech;
+
+    JS_BIN_set( &binData, pReqPayload->data->value, pReqPayload->data->size );
+
+    ret = JS_PKCS11_SignInit( g_pP11CTX, &stMech, sObjects[0] );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    uSignLen = sizeof(sSign);
+
+    ret = JS_PKCS11_Sign( g_pP11CTX, binData.pVal, binData.nLen, sSign, &uSignLen );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    MACResponsePayload *pMRP = (MACResponsePayload *)JS_calloc( 1, sizeof(MACResponsePayload));
+
+    pMRP->mac_data = (ByteString *)JS_malloc(sizeof(ByteString));
+    pMRP->mac_data->value = JS_malloc( uSignLen );
+    memcpy( pMRP->mac_data->value, sSign, uSignLen );
+    pMRP->mac_data->size = uSignLen;
+
+    pMRP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
+    pMRP->unique_identifier->value = binID.pVal;
+    pMRP->unique_identifier->size = binID.nLen;
+
+    *ppRspPayload = pMRP;
+
+end :
+    if( ret != JS_KMS_OK )
+    {
+        JS_BIN_reset( &binID );
+    }
+
+    JS_DB_resetKMS( &sKMS );
+    return ret;
+}
+
+int runMACVerify( sqlite3 *db, const MACVerifyRequestPayload *pReqPayload, MACVerifyResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    BIN binID = {0};
+    BIN binSign = {0};
+    BIN binData = {0};
+    CK_OBJECT_HANDLE    sObjects[20];
+    int nMech = 0;
+    int nSeq = -1;
+    char sSeq[64];
+
+    JDB_KMS sKMS;
+
+    CK_MECHANISM stMech = {0};
+
+    memset( &sKMS, 0x00, sizeof(sKMS));
+    memset( &sSeq, 0x00, sizeof(sSeq));
+
+    memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    nSeq = atoi( sSeq );
+
+    ret = JS_DB_getKMS( db, nSeq, &sKMS );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    if( sKMS.nState == 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_ACTIVATE;
+        goto end;
+    }
+
+    JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
+    ret = findObjects( CKO_PUBLIC_KEY, &binID, sObjects );
+    if( ret < 1 )
+    {
+        ret = JS_KMS_ERROR_NO_OBJECT;
+        goto end;
+    }
+
+    ret = JS_KMS_setMechHMACParam( pReqPayload->crypto_params, &nMech );
+    if( ret < 0 )
+    {
+        ret = JS_KMS_ERROR_NOT_SUPPORT_PARAM;
+        goto end;
+    }
+
+    stMech.mechanism = nMech;
+
+    JS_BIN_set( &binData, pReqPayload->data->value, pReqPayload->data->size );
+    JS_BIN_set( &binSign, pReqPayload->mac_data->value, pReqPayload->mac_data->size );
+
+    ret = JS_PKCS11_VerifyInit( g_pP11CTX, &stMech, sObjects[0] );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    ret = JS_PKCS11_Verify( g_pP11CTX, binData.pVal, binData.nLen, binSign.pVal, binSign.nLen );
+    if( ret != CKR_OK )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    MACVerifyResponsePayload *pMVP = (MACVerifyResponsePayload *)JS_calloc( 1, sizeof(MACVerifyResponsePayload));
+
+    pMVP->validity_indicator = KMIP_VALIDITY_VALID;
+
+    pMVP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
+    pMVP->unique_identifier->value = binID.pVal;
+    pMVP->unique_identifier->size = binID.nLen;
+
+    *ppRspPayload = pMVP;
+
+end :
+    if( ret != JS_KMS_OK )
+    {
+        JS_BIN_reset( &binID );
+    }
+
+    JS_DB_resetKMS( &sKMS );
+    return ret;
+}
 
 static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
 {
@@ -2654,6 +2860,18 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_RNG_SEED )
     {
         ret = runRNGSeed( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_DISCOVER_VERSIONS )
+    {
+        ret = runDiscoverVersions( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_MAC )
+    {
+        ret = runMAC( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_MAC_VERIFY )
+    {
+        ret = runMACVerify( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else
     {
