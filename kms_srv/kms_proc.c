@@ -1136,7 +1136,7 @@ int runVerify( sqlite3 *db, const SignatureVerifyRequestPayload *pReqPayload, Si
 
     SignatureVerifyResponsePayload *pVSP = (SignatureVerifyResponsePayload *)JS_calloc( 1, sizeof(SignatureVerifyResponsePayload));
 
-    pVSP->validity_indicator = KMIP_VALIDITY_VALID;
+    pVSP->validity_indicator = KMIP_VALID_INDI_VALID;
 
     pVSP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pVSP->unique_identifier->value = binID.pVal;
@@ -1792,7 +1792,7 @@ int runMACVerify( sqlite3 *db, const MACVerifyRequestPayload *pReqPayload, MACVe
 
     MACVerifyResponsePayload *pMVP = (MACVerifyResponsePayload *)JS_calloc( 1, sizeof(MACVerifyResponsePayload));
 
-    pMVP->validity_indicator = KMIP_VALIDITY_VALID;
+    pMVP->validity_indicator = KMIP_VALID_INDI_VALID;
 
     pMVP->unique_identifier = (TextString *)JS_malloc(sizeof(TextString));
     pMVP->unique_identifier->value = binID.pVal;
@@ -1808,6 +1808,66 @@ end :
 
     JS_DB_resetKMS( &sKMS );
     return ret;
+}
+
+int runLocate( sqlite3 *db, const LocateRequestPayload *pReqPayload, LocateResponsePayload **ppRspPayload )
+{
+    int ret = 0;
+    JDB_KMSList *pKMSList = NULL;
+    JDB_KMSList *pCurList = NULL;
+    int nAlg = -1;
+    int nCount = 0;
+
+    if( pReqPayload->attribute_count != 1 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_RSA )
+        nAlg = JS_PKI_KEY_TYPE_RSA;
+    else if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_EC )
+        nAlg = JS_PKI_KEY_TYPE_ECC;
+    else if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_AES )
+        nAlg = JS_PKI_KEY_TYPE_AES;
+    else
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    ret = JS_DB_getKMSListByAlgorithm( db, nAlg, &pKMSList );
+    if( ret <= 0 )
+    {
+        ret = JS_KMS_ERROR_SYSTEM;
+        goto end;
+    }
+
+    nCount = JS_DB_countKMSList( pKMSList );
+
+    LocateResponsePayload *lrp = (LocateRequestPayload *)JS_calloc( 1, sizeof(LocateResponsePayload));
+    lrp->located_items = nCount;
+    lrp->identifier_count = nCount;
+    lrp->unique_identifiers = (TextString *)JS_calloc( nCount, sizeof(TextString));
+
+    pCurList = pKMSList;
+
+    for( int i = 0; i < nCount; i++ )
+    {
+        char sSeq[64];
+        sprintf( sSeq, "%d", pKMSList->sKMS.nSeq );
+        lrp->unique_identifiers[i].size = strlen( sSeq );
+        lrp->unique_identifiers[i].value = JS_strdup( sSeq );
+
+        pCurList = pCurList->pNext;
+    }
+
+    *ppRspPayload = lrp;
+
+end :
+    if( pKMSList ) JS_DB_resetKMSList( &pKMSList );
+
+    return 0;
 }
 
 static int registerCert( const BIN *pID, const RegisterRequestPayload *pRRP )
@@ -2872,6 +2932,10 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     else if( pReqItem->operation == KMIP_OP_MAC_VERIFY )
     {
         ret = runMACVerify( db, pReqItem->request_payload, &pRspItem->response_payload );
+    }
+    else if( pReqItem->operation == KMIP_OP_LOCATE )
+    {
+        ret = runLocate( db, pReqItem->request_payload, &pRspItem->response_payload );
     }
     else
     {
