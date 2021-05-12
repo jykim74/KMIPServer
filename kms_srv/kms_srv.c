@@ -268,7 +268,7 @@ int loginHSM()
     nFlags |= CKF_SERIAL_SESSION;
     nUserType = CKU_USER;
 
-    ret = JS_PKCS11_Initialize( g_pP11CTX );
+    ret = JS_PKCS11_Initialize( g_pP11CTX, NULL );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run initialize(%d)\n", ret );

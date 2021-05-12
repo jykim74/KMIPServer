@@ -76,7 +76,7 @@ int getValue( CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_TYPE nType, BIN *pVal )
 {
     int ret = 0;
 
-    ret = JS_PKCS11_GetAtrributeValue2( g_pP11CTX, hObject, nType, pVal );
+    ret = JS_PKCS11_GetAttributeValue2( g_pP11CTX, hObject, nType, pVal );
 
     return ret;
 }
