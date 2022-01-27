@@ -27,6 +27,8 @@ const char  *g_pDBPath = NULL;
 static char g_sConfigPath[1024];
 int g_nVerbose = 0;
 JEnvList    *g_pEnvList = NULL;
+int         g_nPort = 9040;
+int         g_nSSLPort = 9140;
 
 static char g_sBuildInfo[1024];
 
@@ -63,7 +65,7 @@ int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
              nSeq,
              JS_GEN_KIND_KMS_SRV,
              nOP,
-             pInfo,
+             pInfo ? pInfo:"",
              now_t,
              "kms" );
 
@@ -239,6 +241,12 @@ int initServer()
 
     g_pDBPath = JS_strdup( value );
 
+    value = JS_CFG_getValue( g_pEnvList, "KMS_PORT" );
+    if( value ) g_nPort = atoi( value );
+
+    value = JS_CFG_getValue( g_pEnvList, "KMS_SSL_PORT" );
+    if( value ) g_nSSLPort = atoi( value );
+
     ret = loginHSM();
     if( ret != 0 )
     {
@@ -246,7 +254,7 @@ int initServer()
         exit(0);
     }
 
-    printf( "KMI Server Init OK\n" );
+    printf( "KMI Server Init OK [Port:%d SSL:%d]\n", g_nPort, g_nSSLPort );
     return 0;
 }
 
@@ -343,8 +351,8 @@ int main( int argc, char *argv[] )
     initServer();
 
     JS_THD_logInit( "./log", "kms", 2 );
-    JS_THD_registerService( "JS_KMS", NULL, 9040, 4, NULL, KMS_Service );
-    JS_THD_registerService( "JS_KMS_SSL", NULL, 9140, 4, NULL, KMS_SSL_Service );
+    JS_THD_registerService( "JS_KMS", NULL, g_nPort, 4, NULL, KMS_Service );
+    JS_THD_registerService( "JS_KMS_SSL", NULL, g_nSSLPort, 4, NULL, KMS_SSL_Service );
     JS_THD_serviceStartAll();
 
     return 0;
