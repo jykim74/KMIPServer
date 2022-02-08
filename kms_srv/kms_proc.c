@@ -383,11 +383,13 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         goto end;
     }
 
+    /*
     if( sKMS.nState == 0 )
     {
         ret = JS_KMS_ERROR_NOT_ACTIVATE;
         goto end;
     }
+    */
 
     GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
 
@@ -746,7 +748,7 @@ int runActivate( sqlite3 *db, const ActivateRequestPayload *pReqPayload, Activat
         goto end;
     }
 
-    sKMS.nState = 1;
+    sKMS.nState = 2;
 
     ret = JS_DB_modKMS( db, atoi(sSeq), &sKMS );
     if( ret != 0 )
@@ -2998,7 +3000,12 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
 
 
     kmip_set_buffer( &ctx, pReq->pVal, pReq->nLen );
-    kmip_decode_request_message( &ctx, &reqm );
+    ret = kmip_decode_request_message( &ctx, &reqm );
+    if( ret != KMIP_OK )
+    {
+        fprintf( stderr, "fail to decodre request message:%d\n", ret );
+        goto end;
+    }
 
     pAuth = reqm.request_header->authentication;
 
@@ -3068,8 +3075,9 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
 
 end :
     kmip_free_request_message( &ctx, &reqm );
-//    kmip_free_response_message( &ctx, &rspm );
+
     kmip_free_response_batch_item( &ctx, &rspBatch );
+//    kmip_free_response_message( &ctx, &rspm );
 
     kmip_destroy( &ctx );
     return ret;
