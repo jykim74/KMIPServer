@@ -391,7 +391,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         goto end;
     }
     */
-    printf( "1-3\n" );
+
     GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
 
 
@@ -424,7 +424,6 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
     }
     else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PUBKEY )
     {
-        printf( "1-4\n" );
         PublicKey *pPubKey = NULL;
         ret = _getPublicKey( &binID, sKMS.nAlgorithm, &pPubKey );
 
