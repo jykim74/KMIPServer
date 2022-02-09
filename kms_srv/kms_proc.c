@@ -134,6 +134,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
     BIN binPub = {0,0};
 
     CK_OBJECT_HANDLE    sObjects[20];
+
     ret = findObjects( CKO_PUBLIC_KEY, pID, sObjects );
 
     if( nKeyType == JS_PKI_KEY_TYPE_RSA )
@@ -144,7 +145,6 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
         BIN binModulus = {0,0};
         char *pN = NULL;
         char *pE = NULL;
-
 
         memset( &sRSAKeyVal, 0x00, sizeof(sRSAKeyVal));
 
@@ -198,7 +198,6 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
     *ppPubKey = pPubKey;
 
  end :
-
 
     return ret;
 }
@@ -371,11 +370,13 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
 
+    printf( "1-1\n" );
     memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
     JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
 
+    printf( "1-2\n" );
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
     if( ret < 1 )
     {
@@ -390,7 +391,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         goto end;
     }
     */
-
+    printf( "1-3\n" );
     GetResponsePayload *gsp = (GetResponsePayload *)JS_calloc( 1, sizeof(GetResponsePayload));
 
 
@@ -423,6 +424,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
     }
     else if( sKMS.nType == JS_KMS_OBJECT_TYPE_PUBKEY )
     {
+        printf( "1-4\n" );
         PublicKey *pPubKey = NULL;
         ret = _getPublicKey( &binID, sKMS.nAlgorithm, &pPubKey );
 
@@ -432,6 +434,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
             goto end;
         }
 
+        printf( "1-5\n" );
         gsp->object_type = KMIP_OBJTYPE_PUBLIC_KEY;
         gsp->object = pPubKey;
     }
@@ -455,6 +458,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         goto end;
     }
 
+    printf( "1-6\n" );
     gsp->unique_identifier = (TextString *)JS_malloc( sizeof(TextString));
     gsp->unique_identifier->size = binID.nLen;
     gsp->unique_identifier->value = (unsigned char *)JS_calloc( 1, binID.nLen );
@@ -464,8 +468,10 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
     ret = JS_KMS_OK;
 
 end :
+    printf( "1-7\n" );
     JS_DB_resetKMS( &sKMS );
     JS_BIN_reset( &binID );
+    printf( "1-8\n" );
     return ret;
 }
 
@@ -3058,7 +3064,6 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
 
     rspm.batch_count = 1;
     rspm.batch_items = &rspBatch;
-
 
     ret = kmip_encode_response_message( &ctx, &rspm );
     if( ret != 0 )
