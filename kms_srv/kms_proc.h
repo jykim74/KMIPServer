@@ -29,7 +29,7 @@ int runMAC( sqlite3 *db, const MACRequestPayload *pReqPayload, MACResponsePayloa
 int runMACVerify( sqlite3 *db, const MACVerifyRequestPayload *pReqPayload, MACVerifyResponsePayload **ppRspPayload );
 int runLocate( sqlite3 *db, const LocateRequestPayload *pReqPayload, LocateResponsePayload **ppRspPayload );
 
-int isAuthentication( const Authentication *pAuth );
+int isAuthentication( sqlite3* db, const Authentication *pAuth );
 int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchItem *pRspItem );
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp );
 

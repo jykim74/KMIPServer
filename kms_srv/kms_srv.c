@@ -143,6 +143,11 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     }
 
     ret = JS_KMS_receive( pSSL, &binReq );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to receive request[ret:%d]\n", ret );
+        goto end;
+    }
 
     ret = procKMS( db, &binReq, &binRsp );
     if( ret != 0 )

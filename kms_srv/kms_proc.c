@@ -2962,34 +2962,43 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     return ret;
 }
 
-int isAuthentication( const Authentication *pAuth )
+int isAuthentication( sqlite3* db, const Authentication *pAuth )
 {
+    int ret = 0;
+    int isAuth = 0;
     Credential *credential = pAuth->credential;
 
     if( credential == NULL ) return 0;
 
     if( credential->credential_type == KMIP_CRED_USERNAME_AND_PASSWORD )
     {
+        JDB_Admin   sAdmin;
         UsernamePasswordCredential *pUPC = credential->credential_value;
 
         char *pUserName = (char *)JS_calloc(1, pUPC->username->size + 1 );
         memcpy( pUserName, pUPC->username->value, pUPC->username->size );
+
+        memset( &sAdmin, 0x00, sizeof (sAdmin));
 
         char *pPasswd = (char *)JS_calloc(1, pUPC->password->size + 1 );
         memcpy( pPasswd, pUPC->password->value, pUPC->password->size );
 
         printf( "UserName:%s Passwd:%s\n", pUserName, pPasswd );
 
+        ret = JS_DB_getAdminByName( db, pUserName, &sAdmin );
+        if( ret == 1 )
+        {
+            if( strcasecmp( pPasswd, sAdmin.pPassword ) == 0 )
+                isAuth = 1;
+        }
+
         if( pUserName ) JS_free( pUserName );
         if( pPasswd ) JS_free( pPasswd );
-    }
-    else
-    {
-        return 0;
+        JS_DB_resetAdmin( &sAdmin );
     }
 
 
-    return 1;
+    return isAuth;
 }
 
 int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
@@ -3008,7 +3017,7 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
     ret = kmip_decode_request_message( &ctx, &reqm );
     if( ret != KMIP_OK )
     {
-        fprintf( stderr, "fail to decodre request message:%d\n", ret );
+        fprintf( stderr, "fail to decode request message:%d\n", ret );
         goto end;
     }
 
@@ -3016,7 +3025,7 @@ int procKMS( sqlite3 *db, const BIN *pReq, BIN *pRsp )
 
     if( pAuth )
     {
-        ret = isAuthentication( pAuth );
+        ret = isAuthentication( db, pAuth );
         if( ret != 1 )
         {
             fprintf( stderr, "fail authentication\n" );
