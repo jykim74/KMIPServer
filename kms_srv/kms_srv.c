@@ -58,8 +58,9 @@ int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
 
     now_t = time(NULL);
 
-    nSeq = JS_DB_getSeq( db, "TB_AUDIT" );
-    nSeq++;
+//    nSeq = JS_DB_getSeq( db, "TB_AUDIT" );
+//    nSeq++;
+    nSeq = JS_DB_getNextVal( db, "TB_AUDIT" );
 
     sprintf( sData, "%d_%d_%d_%s_%d_%s",
              nSeq,

@@ -253,6 +253,13 @@ static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
         BIN binGroup = {0,0};
         BIN binPriv = {0,0};
 
+        BIN binPubX = {0,0};
+        BIN binPubY = {0,0};
+
+        char *pPubX = NULL;
+        char *pPubY = NULL;
+        char sCurveOID[128];
+
         char *pPoint = NULL;
         char *pGroup = NULL;
         char *pPriv = NULL;
@@ -267,13 +274,27 @@ static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
         JS_BIN_encodeHex( &binGroup, &pGroup );
         JS_BIN_encodeHex( &binPriv, &pPriv );
 
-        JS_PKI_setECKeyVal( &sECKeyVal, pGroup, pPoint, pPriv );
+        JS_BIN_set( &binPoint, binVal.pVal + 3, binVal.nLen - 3 ); // 04+Len(1byte)+04 건너팀
+        JS_BIN_set( &binPubX, &binPoint.pVal[0], binPoint.nLen/2 );
+        JS_BIN_set( &binPubY, &binPoint.pVal[binPoint.nLen/2], binPoint.nLen/2 );
+
+
+        JS_BIN_encodeHex( &binPubX, &pPubX );
+        JS_BIN_encodeHex( &binPubY, &pPubY );
+
+        JS_PKI_getOIDFromSN( "prime256v1", sCurveOID );
+
+        JS_PKI_setECKeyVal( &sECKeyVal, sCurveOID, pPubX, pPubY, pPriv );
 
         JS_PKI_encodeECPrivateKey( &sECKeyVal, &binPri );
 
         JS_BIN_reset( &binPoint );
         JS_BIN_reset( &binGroup );
         JS_BIN_reset( &binPriv );
+        JS_BIN_reset( &binPubX );
+        JS_BIN_reset( &binPubY );
+        if( pPubX ) JS_free( pPubX );
+        if( pPubY ) JS_free( pPubY );
         if(pPoint) JS_free( pPoint );
         if( pGroup ) JS_free( pGroup );
         if( pPriv ) JS_free( pPriv );
@@ -503,7 +524,8 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
     memset( &sKMSAttrib, 0x00, sizeof(sKMSAttrib));
     memset( &sMech, 0x00, sizeof(sMech));
 
-    nSeq = JS_DB_getSeq( db, "TB_KMS" );
+//    nSeq = JS_DB_getSeq( db, "TB_KMS" );
+    nSeq = JS_DB_getLastVal( db, "TB_KMS" );
     if( nSeq < 0 )
     {
         fprintf( stderr, "fail to get seq(%d)\n", nSeq );
@@ -2101,7 +2123,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP, i
 
         sTemplate[uCount].type = CKA_PRIVATE_EXPONENT;
         sTemplate[uCount].pValue = binD.pVal;
-        sTemplate[uCount].pValue = binD.nLen;
+        sTemplate[uCount].ulValueLen = binD.nLen;
         uCount++;
 
         sTemplate[uCount].type = CKA_PRIME_1;
@@ -2518,7 +2540,8 @@ int runRegister( sqlite3 *db, const RegisterRequestPayload *pReqPayload, Registe
     memset( sSeq, 0x00, sizeof(sSeq));
     memset( &sKMS, 0x00, sizeof(sKMS));
 
-    nSeq = JS_DB_getSeq( db, "TB_KMS" );
+//    nSeq = JS_DB_getSeq( db, "TB_KMS" );
+    nSeq = JS_DB_getLastVal( db, "TB_KMS" );
     if( nSeq < 0 )
     {
         ret = JS_KMS_ERROR_SYSTEM;
@@ -2688,8 +2711,10 @@ int runCreateKeyPair( sqlite3 *db, const CreateKeyPairRequestPayload *pReqPayloa
         }
     }
 
-    nPriSeq = JS_DB_getSeq( db, "TB_KMS" );
-    nPriSeq++;
+//    nPriSeq = JS_DB_getSeq( db, "TB_KMS" );
+//    nPriSeq++;
+    nPriSeq = JS_DB_getNextVal( db, "TB_KMS" );
+
     nPubSeq = nPriSeq + 1;
     sprintf( sPriSeq, "%d", nPriSeq );
     sprintf( sPubSeq, "%d", nPubSeq );

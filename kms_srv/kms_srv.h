@@ -13,5 +13,7 @@ int KMS_Service( JThreadInfo *pThInfo );
 int KMS_SSL_Service( JThreadInfo *pThInfo );
 int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo );
 
+int loginHSM();
+
 
 #endif // KMS_SRV_H
