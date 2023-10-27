@@ -85,4 +85,4 @@ elseif(LINUX)
         PKILib crypto ssl ltdl sqlite3 )
 endif()
 
-target_compile_definitions( ${PROJECT_NAME} PRIVATE USE_OCSP )
+# target_compile_definitions( ${PROJECT_NAME} PRIVATE USE_OCSP )

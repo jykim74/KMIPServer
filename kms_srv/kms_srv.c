@@ -191,8 +191,8 @@ int initServer()
         exit(0);
     }
 
-    ret = JS_BIN_fileRead( value, &g_binCACert );
-    if( ret != 0 )
+    ret = JS_BIN_fileReadBER( value, &g_binCACert );
+    if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl ca cert(%s)\n", value );
         exit(0);
@@ -205,8 +205,8 @@ int initServer()
         exit(0);
     }
 
-    ret = JS_BIN_fileRead( value, &g_binCert );
-    if( ret != 0 )
+    ret = JS_BIN_fileReadBER( value, &g_binCert );
+    if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl cert(%s)\n", value );
         exit(0);
@@ -219,8 +219,8 @@ int initServer()
         exit(0);
     }
 
-    ret = JS_BIN_fileRead( value, &g_binPri );
-    if( ret != 0 )
+    ret = JS_BIN_fileReadBER( value, &g_binPri );
+    if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl private key(%s)\n", value );
         exit(0);
@@ -233,7 +233,13 @@ int initServer()
         exit(0);
     }
 
-    JS_PKCS11_LoadLibrary( &g_pP11CTX, value );
+    ret = JS_PKCS11_LoadLibrary( &g_pP11CTX, value );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to load library(%s:%d)\n", value, ret );
+        exit(0);
+    }
+
     JS_SSL_initServer( &g_pSSLCTX );
     JS_SSL_setCertAndPriKey( g_pSSLCTX, &g_binPri, &g_binCert );
     JS_SSL_setClientCACert( g_pSSLCTX, &g_binCACert );
