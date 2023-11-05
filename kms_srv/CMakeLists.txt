@@ -19,6 +19,7 @@ add_executable(kms_srv
 	kms_util.c
 	kms_srv.h
 	kms_srv.c
+        ../kms_srv.cfg
 	)
 
 

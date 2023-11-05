@@ -3,6 +3,7 @@
 #include <string.h>
 #include <getopt.h>
 
+#include "js_log.h"
 #include "js_pki.h"
 #include "js_http.h"
 #include "js_process.h"
@@ -29,6 +30,8 @@ int g_nVerbose = 0;
 JEnvList    *g_pEnvList = NULL;
 int         g_nPort = 9040;
 int         g_nSSLPort = 9140;
+
+int         g_nLogLevel = JS_LOG_LEVEL_INFO;
 
 static char g_sBuildInfo[1024];
 
@@ -183,6 +186,17 @@ int initServer()
         fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
         exit(0);
     }
+
+    value = JS_CFG_getValue( g_pEnvList, "LOG_LEVEL" );
+    if( value ) g_nLogLevel = atoi( value );
+
+    JS_LOG_setLevel( g_nLogLevel );
+
+    value = JS_CFG_getValue( g_pEnvList, "LOG_PATH" );
+    if( value )
+        JS_LOG_open( value, "KMS", JS_LOG_TYPE_DAILY );
+    else
+        JS_LOG_open( "log", "KMS", JS_LOG_TYPE_DAILY );
 
     value = JS_CFG_getValue( g_pEnvList, "SSL_CA_CERT_PATH" );
     if( value == NULL )
