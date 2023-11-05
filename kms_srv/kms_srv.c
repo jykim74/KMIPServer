@@ -134,6 +134,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     if( db == NULL )
     {
         fprintf( stderr, "fail to open db file(%s)\n", g_pDBPath );
+        JS_LOG_write( JS_LOG_LEVEL_ERROR, "fail to open db file(%s)", g_pDBPath );
         ret = -1;
         goto end;
     }
@@ -143,6 +144,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     if( ret != 0 )
     {
         fprintf( stderr, "fail to accept SSL(%d)\n", ret );
+        JS_LOG_write( JS_LOG_LEVEL_ERROR, "fail to accept SSL(%d)", ret );
         goto end;
     }
 
@@ -150,16 +152,19 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     if( ret != 0 )
     {
         fprintf( stderr, "fail to receive request[ret:%d]\n", ret );
+        JS_LOG_write( JS_LOG_LEVEL_ERROR, "fail to receive request[ret:%d]", ret );
         goto end;
     }
 
     ret = procKMS( db, &binReq, &binRsp );
     if( ret != 0 )
     {
+        JS_LOG_write( JS_LOG_LEVEL_VERBOSE, "procKMS fail: %d", ret );
         goto end;
     }
 
     printf( "ReqLen: %d, RspLen: %d\n", binReq.nLen, binRsp.nLen );
+    JS_LOG_write( JS_LOG_LEVEL_VERBOSE, "ReqLen: %d, RspLen: %d", binReq.nLen, binRsp.nLen );
 
     ret = JS_KMS_send( pSSL, &binRsp );
 
