@@ -53,6 +53,7 @@ long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR 
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjectsInit(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
+        LE( "fail to run findObjectsInit(%s:%d)", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
@@ -60,6 +61,7 @@ long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR 
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjects(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
+        LE( "fail to run findObjects(%s:%d)", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
@@ -67,6 +69,7 @@ long findObjects( unsigned long uObjClass, const BIN *pID, CK_OBJECT_HANDLE_PTR 
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run findObjectsFinal(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
+        LE( "fail to run findObjectsFinal(%s:%d)", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
@@ -392,16 +395,17 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
     memset( &sKMS, 0x00, sizeof(sKMS));
     memset( sSeq, 0x00, sizeof(sSeq));
 
-    printf( "1-1\n" );
+
     memcpy( sSeq, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
     nSeq = atoi( sSeq );
 
     JS_BIN_set( &binID, pReqPayload->unique_identifier->value, pReqPayload->unique_identifier->size );
 
-    printf( "1-2\n" );
+
     ret = JS_DB_getKMS( db, nSeq, &sKMS );
     if( ret < 1 )
     {
+        LE( "There is no object" );
         ret = JS_KMS_ERROR_NO_OBJECT;
         goto end;
     }
@@ -423,6 +427,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         ret = _getCert( &binID, &pCert );
         if( ret != 0 )
         {
+            LE( "fail to get certificate(%d)", ret );
             fprintf( stderr, "fail to get certificate(%d)\n", ret );
             goto end;
         }
@@ -436,6 +441,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
         ret = _getPrivateKey( &binID, sKMS.nAlgorithm, &pPriKey );
         if( ret != 0 )
         {
+            LE( "fail to get private key(%d)", ret );
             fprintf( stderr, "fail to get private key(%d)\n", ret );
             goto end;
         }
@@ -451,6 +457,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
 
         if( ret != 0 )
         {
+            LE( "fail to get public key(%d)", ret );
             fprintf( stderr, "fail to get public key(%d)\n", ret );
             goto end;
         }
@@ -466,6 +473,7 @@ int runGet( sqlite3 *db, const GetRequestPayload *pReqPayload, GetResponsePayloa
 
         if( ret != 0 )
         {
+            LE( "fail to get secret key(%d)", ret );
             fprintf( stderr, "fail to get secret key(%d)\n", ret );
             goto end;
         }
@@ -530,13 +538,14 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
     if( nSeq < 0 )
     {
         fprintf( stderr, "fail to get seq(%d)\n", nSeq );
+        LE( "fail to get seq(%d)", nSeq );
         ret = JS_KMS_ERROR_SYSTEM;
         goto end;
     }
 
     nSeq++;
-    printf( "Seq : %d\n", nSeq );
 
+    LD( "Seq: %d", nSeq );
     sprintf( sID, "%d", nSeq );
 
 
@@ -641,12 +650,14 @@ int runCreate( sqlite3 *db, const CreateRequestPayload *pReqPayload, CreateRespo
         if( ret != CKR_OK )
         {
             fprintf( stderr, "fail to run generate key(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
+            LE( "fail to run generate key(%s:%d)", JS_PKCS11_GetErrorMsg(ret), ret );
             ret = JS_KMS_ERROR_FAIL_GEN_KEY;
             goto end;
         }
         else
         {
             printf( "GenerateKey success(%d)\n", hObject );
+            LI( "GenerateKey success(%d)", hObject );
         }
     }
 
@@ -698,6 +709,7 @@ int runDestroy( sqlite3 *db, const DestroyRequestPayload *pReqPayload, DestroyRe
     if( ret != 1 )
     {
         fprintf( stderr, "fail to get seq(%d)\n", nSeq );
+        LE( "fail to get seq(%d)", nSeq );
         ret = JS_KMS_ERROR_SYSTEM;
         goto end;
     }
@@ -723,6 +735,7 @@ int runDestroy( sqlite3 *db, const DestroyRequestPayload *pReqPayload, DestroyRe
     if( ret <= 0 )
     {
         fprintf(stderr, "fail to find objects(%d)\n", ret );
+        LE( "fail to find objects(%d)", ret );
         ret = JS_KMS_ERROR_NO_OBJECT;
 
         goto end;
@@ -732,6 +745,7 @@ int runDestroy( sqlite3 *db, const DestroyRequestPayload *pReqPayload, DestroyRe
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to destroy object(%s:%d)\n", JS_PKCS11_GetErrorMsg(ret), ret );
+        LE( "fail to destroy object(%s:%d)", JS_PKCS11_GetErrorMsg(ret), ret );
         ret = JS_KMS_ERROR_FAIL_DESTROY_OBJECT;
 
         goto end;

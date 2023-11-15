@@ -345,6 +345,12 @@ int loginHSM()
         return -1;
     }
 
+    if( nSlotIndex < 0 || nSlotIndex >= uSlotCnt )
+    {
+        fprintf( stderr, "Invalid slot index: %d\n", nSlotIndex );
+        return -1;
+    }
+
     ret = JS_PKCS11_OpenSession( g_pP11CTX, sSlotList[nSlotIndex], nFlags );
     if( ret != CKR_OK )
     {
