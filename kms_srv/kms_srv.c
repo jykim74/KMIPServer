@@ -101,6 +101,7 @@ int KMS_Service( JThreadInfo *pThInfo )
     if( db == NULL )
     {
         fprintf( stderr, "fail to open db file(%s)\n", g_pDBPath );
+        LE( "fail to open db file(%s)", g_pDBPath );
         ret = -1;
         goto end;
     }
@@ -293,19 +294,36 @@ int loginHSM()
 {
     int ret = 0;
     int nFlags = 0;
+    const char *value = NULL;
 
 
     CK_ULONG uSlotCnt = 0;
     CK_SLOT_ID  sSlotList[10];
 
 //    char *pPin = "1234";
-    char *pPin = "9999";
-    long uPinLen = 4;
+    const char *pPin = "9999";
+    int nSlotIndex = -1;
     int nUserType = 0;
 
     nFlags |= CKF_RW_SESSION;
     nFlags |= CKF_SERIAL_SESSION;
     nUserType = CKU_USER;
+
+    value = JS_CFG_getValue( g_pEnvList, "PKCS11_SLOT_INDEX" );
+    if( value == NULL )
+    {
+        fprintf( stderr, "There is no 'PKCS11_SLOT_INDEX'\n" );
+        return -1;
+    }
+
+    nSlotIndex = atoi( value );
+
+    pPin = JS_CFG_getValue( g_pEnvList, "PKCS11_PIN" );
+    if( pPin == NULL )
+    {
+        fprintf( stderr, "There is no 'PKCS11_PIN'\n" );
+        return -1;
+    }
 
     ret = JS_PKCS11_Initialize( g_pP11CTX, NULL );
     if( ret != CKR_OK )
@@ -327,14 +345,14 @@ int loginHSM()
         return -1;
     }
 
-    ret = JS_PKCS11_OpenSession( g_pP11CTX, sSlotList[0], nFlags );
+    ret = JS_PKCS11_OpenSession( g_pP11CTX, sSlotList[nSlotIndex], nFlags );
     if( ret != CKR_OK )
     {
         fprintf( stderr, "fail to run opensession(%s:%x)\n", JS_PKCS11_GetErrorMsg(ret), ret );
         return -1;
     }
 
-    ret = JS_PKCS11_Login( g_pP11CTX, nUserType, pPin, uPinLen );
+    ret = JS_PKCS11_Login( g_pP11CTX, nUserType, pPin, strlen(pPin) );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to run login hsm(%d)\n", ret );
@@ -342,6 +360,7 @@ int loginHSM()
     }
 
     printf( "HSM login ok\n" );
+    LI( "HSM login ok" );
 
     return 0;
 }

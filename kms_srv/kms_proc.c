@@ -10,6 +10,7 @@
 #include "js_kms.h"
 #include "js_pki.h"
 #include "js_pki_tools.h"
+#include "js_log.h"
 
 #include "kms_util.h"
 
@@ -2981,6 +2982,7 @@ int procBatchItem( sqlite3 *db, const RequestBatchItem *pReqItem, ResponseBatchI
     }
     else
     {
+        LE( "ProcKMS fail: %d", ret );
         _setErrorResponse( ret, pRspItem );
     }
 
