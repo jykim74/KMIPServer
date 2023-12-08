@@ -28,8 +28,8 @@ const char  *g_pDBPath = NULL;
 static char g_sConfigPath[1024];
 int g_nVerbose = 0;
 JEnvList    *g_pEnvList = NULL;
-int         g_nPort = 9040;
-int         g_nSSLPort = 9140;
+int         g_nPort = JS_KMS_PORT;
+int         g_nSSLPort = JS_KMS_SSL_PORT;
 
 int         g_nLogLevel = JS_LOG_LEVEL_INFO;
 
