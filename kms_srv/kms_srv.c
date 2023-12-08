@@ -448,7 +448,6 @@ int main( int argc, char *argv[] )
     JS_PRC_start();
     JS_PRC_detach();
 #else
-    JS_THD_logInit( "./log", "kms", 2 );
     JS_THD_registerService( "JS_KMS", NULL, g_nPort, 4, KMS_Service );
     JS_THD_registerService( "JS_KMS_SSL", NULL, g_nSSLPort, 4, KMS_SSL_Service );
     JS_THD_registerAdmin( NULL, g_nPort+10 );
