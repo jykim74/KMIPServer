@@ -31,8 +31,6 @@ JEnvList    *g_pEnvList = NULL;
 int         g_nPort = JS_KMS_PORT;
 int         g_nSSLPort = JS_KMS_SSL_PORT;
 
-int         g_nLogLevel = JS_LOG_LEVEL_INFO;
-
 static char g_sBuildInfo[1024];
 
 const char *getBuildInfo()
@@ -141,7 +139,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     }
 
 
-    ret = JS_SSL_accept( g_pSSLCTX, pThInfo->nSockFd, &pSSL );
+    ret = JS_SSL_initAccept( g_pSSLCTX, pThInfo->nSockFd, &pSSL );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to accept SSL(%d)\n", ret );
@@ -194,9 +192,7 @@ int initServer()
     }
 
     value = JS_CFG_getValue( g_pEnvList, "LOG_LEVEL" );
-    if( value ) g_nLogLevel = atoi( value );
-
-    JS_LOG_setLevel( g_nLogLevel );
+    if( value ) JS_LOG_setLevel( atoi( value ));
 
     value = JS_CFG_getValue( g_pEnvList, "LOG_PATH" );
     if( value )
