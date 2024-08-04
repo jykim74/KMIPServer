@@ -31,6 +31,9 @@ JEnvList    *g_pEnvList = NULL;
 int         g_nPort = JS_KMS_PORT;
 int         g_nSSLPort = JS_KMS_SSL_PORT;
 
+int         g_nConfigDB = 0;
+const char* g_dbPath = NULL;
+
 static char g_sBuildInfo[1024];
 
 const char *getBuildInfo()
@@ -183,13 +186,14 @@ int initServer()
 {
     int ret = 0;
     const char *value = NULL;
-
+/*
     ret = JS_CFG_readConfig( g_sConfigPath, &g_pEnvList );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
         exit(0);
     }
+*/
 
     value = JS_CFG_getValue( g_pEnvList, "LOG_LEVEL" );
     if( value ) JS_LOG_setLevel( atoi( value ));
@@ -402,11 +406,13 @@ static int ChildProcessTerm()
 #if 1
 int main( int argc, char *argv[] )
 {
+    int ret = 0;
     int nOpt = 0;
+    sqlite3* db = NULL;
 
     sprintf( g_sConfigPath, "%s", "../kms_srv.cfg" );
 
-    while(( nOpt = getopt( argc, argv, "c:vh")) != -1 )
+    while(( nOpt = getopt( argc, argv, "c:d:vh")) != -1 )
     {
         switch( nOpt ) {
         case 'h':
@@ -420,6 +426,55 @@ int main( int argc, char *argv[] )
         case 'c':
             sprintf( g_sConfigPath, "%s", optarg );
             break;
+
+        case 'd' :
+            g_dbPath = JS_strdup( optarg );
+            g_nConfigDB = 1;
+            break;
+        }
+    }
+
+    if( g_nConfigDB == 1 )
+    {
+        JDB_ConfigList *pConfigList = NULL;
+
+        if( JS_UTIL_isFileExist( g_dbPath ) == 0 )
+        {
+            fprintf( stderr, "The data file is no exist[%s]\n", g_dbPath );
+            exit(0);
+        }
+
+        db = JS_DB_open( g_dbPath );
+        if( db == NULL )
+        {
+            fprintf( stderr, "fail to open db file(%s)\n", g_dbPath );
+            exit(0);
+        }
+
+        ret = JS_DB_getConfigListByKind( db, JS_GEN_KIND_KMS_SRV, &pConfigList );
+        if( ret <= 0 )
+        {
+            fprintf( stderr, "There is no config data in database: %d\n", ret );
+            exit(0);
+        }
+
+        ret = JS_CFG_readConfigFromDB( pConfigList, &g_pEnvList );
+        if( ret != 0 )
+        {
+            fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
+            exit(0);
+        }
+
+
+        if( pConfigList ) JS_DB_resetConfigList( &pConfigList );
+    }
+    else
+    {
+        ret = JS_CFG_readConfig( g_sConfigPath, &g_pEnvList );
+        if( ret != 0 )
+        {
+            fprintf( "fail to open config file(%s)\n", g_sConfigPath );
+            exit(0);
         }
     }
 
