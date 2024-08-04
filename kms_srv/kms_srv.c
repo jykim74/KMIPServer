@@ -182,7 +182,7 @@ end:
     return 0;
 }
 
-int initServer()
+int initServer( sqlite3 *db )
 {
     int ret = 0;
     const char *value = NULL;
@@ -200,78 +200,94 @@ int initServer()
 
     value = JS_CFG_getValue( g_pEnvList, "LOG_PATH" );
     if( value )
-        JS_LOG_open( value, "KMS", JS_LOG_TYPE_DAILY );
+        ret = JS_LOG_open( value, "KMS", JS_LOG_TYPE_DAILY );
     else
-        JS_LOG_open( "log", "KMS", JS_LOG_TYPE_DAILY );
+        ret = JS_LOG_open( "log", "KMS", JS_LOG_TYPE_DAILY );
+
+    if( ret != 0 )
+    {
+        LE( "fail to open logfile:%d", ret );
+        return ret;
+    }
+
 
     value = JS_CFG_getValue( g_pEnvList, "SSL_CA_CERT_PATH" );
     if( value == NULL )
     {
         fprintf( stderr, "You have to set 'SSL_CA_CERT_PATH'\n" );
-        exit(0);
+        return -1;
     }
 
     ret = JS_BIN_fileReadBER( value, &g_binCACert );
     if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl ca cert(%s)\n", value );
-        exit(0);
+        return -1;
     }
 
     value = JS_CFG_getValue( g_pEnvList, "SSL_CERT_PATH" );
     if( value == NULL )
     {
         fprintf( stderr, "You have to set 'SSL_CERT_PATH'\n" );
-        exit(0);
+        return -1;
     }
 
     ret = JS_BIN_fileReadBER( value, &g_binCert );
     if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl cert(%s)\n", value );
-        exit(0);
+        return -1;
     }
 
     value = JS_CFG_getValue( g_pEnvList, "SSL_PRIKEY_PATH" );
     if( value == NULL )
     {
         fprintf( stderr, "You have to set 'SSL_PRIKEY_PATH'\n" );
-        exit(0);
+        return -1;
     }
 
     ret = JS_BIN_fileReadBER( value, &g_binPri );
     if( ret <= 0 )
     {
         fprintf( stderr, "fail to read ssl private key(%s)\n", value );
-        exit(0);
+        return -1;
     }
 
     value = JS_CFG_getValue( g_pEnvList, "PKCS11_LIB_PATH" );
     if( value == NULL )
     {
         fprintf( stderr, "You have to set 'PKCS11_LIB_PATH'\n" );
-        exit(0);
+        return -2;
     }
 
     ret = JS_PKCS11_LoadLibrary( &g_pP11CTX, value );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to load library(%s:%d)\n", value, ret );
-        exit(0);
+        return -2;
     }
 
     JS_SSL_initServer( &g_pSSLCTX );
     JS_SSL_setCertAndPriKey( g_pSSLCTX, &g_binPri, &g_binCert );
     JS_SSL_setClientCACert( g_pSSLCTX, &g_binCACert );
 
-    value = JS_CFG_getValue( g_pEnvList, "DB_PATH" );
-    if( value == NULL )
-    {
-        fprintf( stderr, "You have to set 'DB_PATH'\n" );
-        exit(0);
-    }
 
-    g_pDBPath = JS_strdup( value );
+    if( g_dbPath == NULL && g_nConfigDB == 0 )
+    {
+        value = JS_CFG_getValue( g_pEnvList, "DB_PATH" );
+        if( value == NULL )
+        {
+            LE( "You have to set 'DB_PATH'" );
+            return -3;
+        }
+
+        g_pDBPath = JS_strdup( value );
+        if( JS_UTIL_isFileExist( g_dbPath ) == 0 )
+        {
+            LE( "The data file is no exist[%s]", g_dbPath );
+            return -4;
+        }
+    }
 
     value = JS_CFG_getValue( g_pEnvList, "KMS_PORT" );
     if( value ) g_nPort = atoi( value );
@@ -282,8 +298,8 @@ int initServer()
     ret = loginHSM();
     if( ret != 0 )
     {
-        fprintf( stderr, "fail to login in HSM(%d)\n", ret );
-        exit(0);
+        LE( "fail to login in HSM(%d)", ret );
+        return -5;
     }
 
     printf( "KMI Server Init OK [Port:%d SSL:%d]\n", g_nPort, g_nSSLPort );
@@ -473,12 +489,24 @@ int main( int argc, char *argv[] )
         ret = JS_CFG_readConfig( g_sConfigPath, &g_pEnvList );
         if( ret != 0 )
         {
-            fprintf( "fail to open config file(%s)\n", g_sConfigPath );
+            fprintf( stderr, "fail to open config file(%s)\n", g_sConfigPath );
             exit(0);
         }
     }
 
-    initServer();
+    ret = initServer( db );
+    if( ret != 0 )
+    {
+        LE( "fail to initialize server: %d", ret );
+        exit( 0 );
+    }
+
+    if( g_nConfigDB == 1 )
+    {
+        if( db ) JS_DB_close( db );
+    }
+
+    LI( "KMS Server initialized succfully" );
 
 #if !defined WIN32 && defined USE_PRC
     JProcInit sProcInit;
