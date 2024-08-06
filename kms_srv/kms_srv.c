@@ -9,6 +9,7 @@
 #include "js_process.h"
 #include "js_db.h"
 #include "js_cfg.h"
+#include "js_net.h"
 
 #include "kms_srv.h"
 #include "kms_proc.h"
@@ -93,7 +94,7 @@ int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
 int KMS_Service( JThreadInfo *pThInfo )
 {
     int ret = 0;
-
+    char cType = 0x00;
 
     BIN binReq = {0,0};
     BIN binRsp = {0,0};
@@ -107,12 +108,21 @@ int KMS_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
+    ret = JS_NET_recvRecord( pThInfo->nSockFd, &cType, &binReq );
+    if( ret != 0 )
+    {
+        fprintf( stderr, "fail to receive request[ret:%d]\n", ret );
+        JS_LOG_write( JS_LOG_LEVEL_ERROR, "fail to receive request[ret:%d]", ret );
+        goto end;
+    }
+
     ret = procKMS( db, &binReq, &binRsp );
     if( ret != 0 )
     {
         goto end;
     }
 
+    ret = JS_NET_sendRecord( pThInfo->nSockFd, cType, &binRsp );
 
     /* send response body */
 end:
