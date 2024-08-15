@@ -94,7 +94,6 @@ int KMS_addAudit( sqlite3 *db, int nOP, const char *pInfo )
 int KMS_Service( JThreadInfo *pThInfo )
 {
     int ret = 0;
-    char cType = 0x00;
 
     BIN binReq = {0,0};
     BIN binRsp = {0,0};
@@ -108,7 +107,7 @@ int KMS_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
-    ret = JS_NET_recvRecord( pThInfo->nSockFd, &cType, &binReq );
+    ret = JS_KMS_receive( pThInfo->nSockFd, &binReq );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to receive request[ret:%d]\n", ret );
@@ -122,7 +121,7 @@ int KMS_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
-    ret = JS_NET_sendRecord( pThInfo->nSockFd, cType, &binRsp );
+    ret = JS_KMS_send( pThInfo->nSockFd, &binRsp );
 
     /* send response body */
 end:
@@ -160,7 +159,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
         goto end;
     }
 
-    ret = JS_KMS_receive( pSSL, &binReq );
+    ret = JS_KMS_receiveSSL( pSSL, &binReq );
     if( ret != 0 )
     {
         fprintf( stderr, "fail to receive request[ret:%d]\n", ret );
@@ -178,7 +177,7 @@ int KMS_SSL_Service( JThreadInfo *pThInfo )
     printf( "ReqLen: %d, RspLen: %d\n", binReq.nLen, binRsp.nLen );
     JS_LOG_write( JS_LOG_LEVEL_VERBOSE, "ReqLen: %d, RspLen: %d", binReq.nLen, binRsp.nLen );
 
-    ret = JS_KMS_send( pSSL, &binRsp );
+    ret = JS_KMS_sendSSL( pSSL, &binRsp );
 
     /* send response body */
 end:
