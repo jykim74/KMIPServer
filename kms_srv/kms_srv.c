@@ -33,7 +33,6 @@ int         g_nPort = JS_KMS_PORT;
 int         g_nSSLPort = JS_KMS_SSL_PORT;
 
 int         g_nConfigDB = 0;
-const char* g_dbPath = NULL;
 
 static char g_sBuildInfo[1024];
 
@@ -281,7 +280,7 @@ int initServer( sqlite3 *db )
     JS_SSL_setClientCACert( g_pSSLCTX, &g_binCACert );
 
 
-    if( g_dbPath == NULL && g_nConfigDB == 0 )
+    if( g_pDBPath == NULL && g_nConfigDB == 0 )
     {
         value = JS_CFG_getValue( g_pEnvList, "DB_PATH" );
         if( value == NULL )
@@ -291,9 +290,9 @@ int initServer( sqlite3 *db )
         }
 
         g_pDBPath = JS_strdup( value );
-        if( JS_UTIL_isFileExist( g_dbPath ) == 0 )
+        if( JS_UTIL_isFileExist( g_pDBPath ) == 0 )
         {
-            LE( "The data file is no exist[%s]", g_dbPath );
+            LE( "The data file is no exist[%s]", g_pDBPath );
             return -4;
         }
     }
@@ -453,7 +452,7 @@ int main( int argc, char *argv[] )
             break;
 
         case 'd' :
-            g_dbPath = JS_strdup( optarg );
+            g_pDBPath = JS_strdup( optarg );
             g_nConfigDB = 1;
             break;
         }
@@ -463,16 +462,16 @@ int main( int argc, char *argv[] )
     {
         JDB_ConfigList *pConfigList = NULL;
 
-        if( JS_UTIL_isFileExist( g_dbPath ) == 0 )
+        if( JS_UTIL_isFileExist( g_pDBPath ) == 0 )
         {
-            fprintf( stderr, "The data file is no exist[%s]\n", g_dbPath );
+            fprintf( stderr, "The data file is no exist[%s]\n", g_pDBPath );
             exit(0);
         }
 
-        db = JS_DB_open( g_dbPath );
+        db = JS_DB_open( g_pDBPath );
         if( db == NULL )
         {
-            fprintf( stderr, "fail to open db file(%s)\n", g_dbPath );
+            fprintf( stderr, "fail to open db file(%s)\n", g_pDBPath );
             exit(0);
         }
 
