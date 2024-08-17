@@ -3029,8 +3029,24 @@ int isAuthentication( sqlite3* db, const Authentication *pAuth )
         ret = JS_DB_getAdminByName( db, pUserName, &sAdmin );
         if( ret == 1 )
         {
+            BIN binGenMAC = {0,0};
+            BIN binMAC = {0,0};
+
+            JS_GEN_genPasswdHMAC( pPasswd, &binGenMAC );
+            JS_BIN_decodeHex( sAdmin.pPassword, &binMAC );
+
+            /*
             if( strcasecmp( pPasswd, sAdmin.pPassword ) == 0 )
                 isAuth = 1;
+            */
+
+            if( JS_BIN_cmp(  &binGenMAC, &binMAC ) == 0 )
+            {
+                isAuth = 1;
+            }
+
+            JS_BIN_reset( &binGenMAC );
+            JS_BIN_reset( &binMAC );
         }
 
         if( pUserName ) JS_free( pUserName );
