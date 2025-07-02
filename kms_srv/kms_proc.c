@@ -1334,7 +1334,7 @@ int runGetAttributes( sqlite3 *db, const GetAttributesRequestPayload *pReqPayloa
     getKMIPAttributeNum( KMIP_ATTR_OBJECT_TYPE, sKMS.nType, &attrs[i++] );
     getKMIPAttributeString( KMIP_ATTR_UNIQUE_IDENTIFIER, sSeq, &attrs[i++] );
     getKMIPAttributeNum( KMIP_ATTR_STATE, sKMS.nState, &attrs[i++] );
-    getKMIPAttributeNum( KMIP_ATTR_INITIAL_DATE, sKMS.nRegTime, &attrs[i++]);
+    getKMIPAttributeNum( KMIP_ATTR_INITIAL_DATE, sKMS.tRegTime, &attrs[i++]);
 
     pCurList = pKMSAttribList;
     while( pCurList )
