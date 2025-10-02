@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <unistd.h>
 
 #include "js_log.h"
 #include "js_pki.h"
@@ -434,7 +435,13 @@ int main( int argc, char *argv[] )
     int nOpt = 0;
     sqlite3* db = NULL;
 
-    sprintf( g_sConfigPath, "%s", "../kms_srv.cfg" );
+#if defined WIN32
+    chdir( "../../../" );
+#else
+    chdir( "../" );
+#endif
+
+    sprintf( g_sConfigPath, "%s", "kms_srv.cfg" );
 
     while(( nOpt = getopt( argc, argv, "c:d:vh")) != -1 )
     {
