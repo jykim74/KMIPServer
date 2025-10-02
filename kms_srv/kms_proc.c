@@ -168,7 +168,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
         if( pN ) JS_free( pN );
         JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
     }
-    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECDSA )
     {
         ret = getValue( sObjects[0], CKA_EC_POINT, &binPub );
     }
@@ -195,7 +195,7 @@ static int _getPublicKey( const BIN *pID, int nKeyType, PublicKey **ppPubKey )
 
     if( nKeyType == JS_PKI_KEY_TYPE_RSA )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_RSA;
-    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECDSA )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
 
     pPubKey->key_block = key_block;
@@ -249,7 +249,7 @@ static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
         if( pD ) JS_free( pD );
         JS_PKI_resetRSAKeyVal( &sRSAKeyVal );
     }
-    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECDSA )
     {
         JECKeyVal sECKeyVal;
 
@@ -328,7 +328,7 @@ static int _getPrivateKey( const BIN *pID, int nKeyType, PrivateKey **ppPriKey )
 
     if( nKeyType == JS_PKI_KEY_TYPE_RSA )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_RSA;
-    else if( nKeyType == JS_PKI_KEY_TYPE_ECC )
+    else if( nKeyType == JS_PKI_KEY_TYPE_ECDSA )
         key_block->cryptographic_algorithm = KMIP_CRYPTOALG_ECDSA;
 
     pPriKey->key_block = key_block;
@@ -1871,7 +1871,7 @@ int runLocate( sqlite3 *db, const LocateRequestPayload *pReqPayload, LocateRespo
     if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_RSA )
         nAlg = JS_PKI_KEY_TYPE_RSA;
     else if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_EC )
-        nAlg = JS_PKI_KEY_TYPE_ECC;
+        nAlg = JS_PKI_KEY_TYPE_ECDSA;
     else if( pReqPayload->attributes[0].value == KMIP_CRYPTOALG_AES )
         nAlg = JS_PKI_KEY_TYPE_AES;
     else
@@ -2049,7 +2049,7 @@ static int registerPriKey( const BIN *pID, const RegisterRequestPayload *pRRP, i
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
 
-        *pnKeyAlg = JS_PKI_KEY_TYPE_ECC;
+        *pnKeyAlg = JS_PKI_KEY_TYPE_ECDSA;
     }
     else
     {
@@ -2289,7 +2289,7 @@ static int registerPubKey( const BIN *pID, const RegisterRequestPayload *pRRP, i
         sTemplate[uCount].ulValueLen = sizeof(keyType);
         uCount++;
 
-        *pnKeyAlg = JS_PKI_KEY_TYPE_ECC;
+        *pnKeyAlg = JS_PKI_KEY_TYPE_ECDSA;
     }
     else
     {
@@ -2744,7 +2744,7 @@ int runCreateKeyPair( sqlite3 *db, const CreateKeyPairRequestPayload *pReqPayloa
     else if( keyType == CKK_ECDSA )
     {
         stMech.mechanism = CKM_ECDSA_KEY_PAIR_GEN;
-        nKeyAlg = JS_PKI_KEY_TYPE_ECC;
+        nKeyAlg = JS_PKI_KEY_TYPE_ECDSA;
     }
 
     sPubTemplate[uPubCount].type = CKA_CLASS;
